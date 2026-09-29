@@ -187,3 +187,33 @@ test("reinstall deletes a skill the plugin no longer ships", () => {
   assert.ok(!second.record.paths.includes(".claude/skills/gone"));
   assert.ok(second.record.paths.includes(".claude/skills/stay"));
 });
+
+test("DEFAULT_USAGE.md is locked and omitted from the skill copy", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mk-apply-"));
+  const plugin = path.join(tmp, "plugin");
+  const project = path.join(tmp, "project");
+  fs.mkdirSync(project);
+  writeTree(plugin, {
+    ".claude-plugin/plugin.json": JSON.stringify({ name: "demo", version: "1.0.0" }),
+    "skills/docs/SKILL.md": "# Docs\n",
+    "skills/docs/DEFAULT_USAGE.md":
+      "- **Code change.** If the `docs` skill is available, update the docs.\n",
+    "skills/plain/SKILL.md": "# Plain\n",
+  });
+  const result = installFromPluginDir(project, {
+    marketplace: "acme/kit",
+    name: "demo",
+    ref: "main",
+  }, plugin);
+  assert.deepEqual(result.record.agentsSnippets, [
+    {
+      skill: "docs",
+      body: "- **Code change.** If the `docs` skill is available, update the docs.",
+    },
+  ]);
+  assert.ok(
+    !fs.existsSync(path.join(project, ".claude/skills/docs/DEFAULT_USAGE.md")),
+  );
+  assert.ok(fs.existsSync(path.join(project, ".claude/skills/docs/SKILL.md")));
+  assert.ok(fs.existsSync(path.join(project, ".claude/skills/plain/SKILL.md")));
+});

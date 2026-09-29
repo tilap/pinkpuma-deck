@@ -10,6 +10,7 @@ import {
   parsePluginSpec,
   readLockfile,
   removeLockEntry,
+  setWriteAgentsMd,
   upsertLockEntry,
   writeLockfile,
 } from "./lockfile.mjs";
@@ -59,11 +60,49 @@ test("write and read lockfile", () => {
   writeLockfile(dir, lock);
   const round = readLockfile(dir);
   assert.equal(round.lockfileVersion, 2);
+  assert.equal(round.writeAgentsMd, true);
   assert.equal(round.plugins.length, 1);
   assert.equal(round.plugins[0].resolved, "abc123");
   assert.deepEqual(round.plugins[0].paths, [".claude/skills/foo"]);
+  assert.deepEqual(round.plugins[0].agentsSnippets, []);
 });
 
+test("writeAgentsMd false is persisted on the lock", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
+  writeLockfile(dir, setWriteAgentsMd(upsertLockEntry(emptyLockfile(), record), false));
+  const round = readLockfile(dir);
+  assert.equal(round.writeAgentsMd, false);
+});
+
+test("missing writeAgentsMd defaults to true", () => {
+  const normalized = normalizeLockfile({
+    lockfileVersion: 2,
+    plugins: [
+      {
+        marketplace: "acme/kit",
+        name: "foo",
+        ref: "main",
+        resolved: "abc",
+        paths: [],
+        mcpKeys: {},
+      },
+    ],
+  });
+  assert.equal(normalized.writeAgentsMd, true);
+});
+
+test("round-trips agentsSnippets on the lock entry", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
+  const withSnippets = {
+    ...record,
+    agentsSnippets: [
+      { skill: "foo", body: "- **Foo.** If the `foo` skill is available, use it." },
+    ],
+  };
+  writeLockfile(dir, upsertLockEntry(emptyLockfile(), withSnippets));
+  const round = readLockfile(dir);
+  assert.deepEqual(round.plugins[0].agentsSnippets, withSnippets.agentsSnippets);
+});
 test("rejects unsupported lockfileVersion", () => {
   assert.throws(
     () => normalizeLockfile({ lockfileVersion: 1, plugins: [] }),

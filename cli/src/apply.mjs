@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { readDefaultUsage, rewriteAgentsMd } from "./agents.mjs";
 import { fetchMarketplace, resolvePluginDir } from "./github.mjs";
 import { entryId, emptyLockfile, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
 import { HOSTS, pluginAssetRel } from "./paths.mjs";
@@ -14,11 +15,6 @@ const ASSET_SKIP = new Set([
 
 /** Relative paths that can point at plugin files outside a skill directory. */
 const RELATIVE_PATH = /(?:\.\.?\/)+(?:[\w.@+-]+\/)*[\w.@+-]+/g;
-
-function copyDir(src, dest) {
-  fs.mkdirSync(dest, { recursive: true });
-  fs.cpSync(src, dest, { recursive: true });
-}
 
 function listSkillDirs(pluginDir) {
   const skillsRoot = path.join(pluginDir, "skills");
@@ -197,9 +193,15 @@ export function pruneStaleEntries(projectRoot, pluginsDoc, lock) {
   return { lock: { ...lock, plugins: kept }, removed };
 }
 
-function replaceDir(src, dest) {
+function replaceSkillDir(src, dest) {
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(src, dest);
+  fs.mkdirSync(dest, { recursive: true });
+  fs.cpSync(src, dest, {
+    recursive: true,
+    filter(from) {
+      return path.basename(from) !== "DEFAULT_USAGE.md";
+    },
+  });
 }
 
 /**
@@ -213,6 +215,7 @@ export function installFromPluginDir(projectRoot, entry, pluginDir, previous) {
   const id = entryId(entry);
   const paths = [];
   const mcpKeys = {};
+  const agentsSnippets = [];
   const assetDirs = {};
   let pluginVersion = null;
 
@@ -241,10 +244,12 @@ export function installFromPluginDir(projectRoot, entry, pluginDir, previous) {
   const skills = listSkillDirs(pluginDir);
   for (const skill of skills) {
     const src = path.join(pluginDir, "skills", skill);
+    const snippet = readDefaultUsage(pluginDir, skill);
+    if (snippet) agentsSnippets.push(snippet);
     for (const host of Object.values(HOSTS)) {
       const rel = path.join(host.skills, skill);
       const dest = path.join(projectRoot, rel);
-      replaceDir(src, dest);
+      replaceSkillDir(src, dest);
       rewriteSkillLinks(pluginDir, skill, dest, assetDirs[host.skills]);
       paths.push(rel);
     }
@@ -280,6 +285,7 @@ export function installFromPluginDir(projectRoot, entry, pluginDir, previous) {
   }
 
   paths.sort();
+  agentsSnippets.sort((a, b) => a.skill.localeCompare(b.skill));
   return {
     id,
     skills: skills.length,
@@ -293,6 +299,7 @@ export function installFromPluginDir(projectRoot, entry, pluginDir, previous) {
       resolved: "",
       paths,
       mcpKeys,
+      agentsSnippets,
     },
   };
 }
@@ -318,7 +325,7 @@ export function applyEntry(projectRoot, entry, lock) {
 /**
  * Install every requested plugin and drop lock records that are no longer requested.
  * Writes the lock after the prune and after each plugin so a later failure
- * still describes what is on disk.
+ * still describes what is on disk. Rewrites AGENTS.md from locked snippets.
  */
 export function applyAll(projectRoot, pluginsDoc, lock) {
   let current = pruneStaleEntries(
@@ -334,6 +341,13 @@ export function applyAll(projectRoot, pluginsDoc, lock) {
     writeLockfile(projectRoot, current);
     results.push(result);
   }
+  rewriteAgentsMd(projectRoot, current);
   return results;
+}
+
+/** Persist a lock entry and refresh the AGENTS.md skills block. */
+export function commitLockAndAgents(projectRoot, lock) {
+  writeLockfile(projectRoot, lock);
+  return rewriteAgentsMd(projectRoot, lock);
 }
 

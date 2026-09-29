@@ -24,6 +24,8 @@ deck --help
 | `list`                                             | Show requested plugins and, when synced, the resolved commit                     |
 
 `--project <dir>` (or `-C`) scopes all commands to that project root (default: cwd).
+`--no-agents-md` / `--agents-md` on `add`, `remove`, and `sync` set `writeAgentsMd` in
+the lock (default `true`).
 
 ## What gets copied
 
@@ -42,6 +44,12 @@ to the per-plugin directory, so two plugins can both ship a `CONVENTIONS.md`.
 
 Sync replaces those paths. Remove deletes every path recorded in the lock for that
 plugin, including a file that was already there before the first install.
+
+Optional `skills/<name>/DEFAULT_USAGE.md` is not copied into the skill directory. Sync
+stores its body on the lock entry as `agentsSnippets` and, when `AGENTS.md` already
+exists and `writeAgentsMd` is true, rewrites a marked `## Skills` block from those
+snippets. Deck never creates `AGENTS.md`. Pass `--no-agents-md` (or set
+`writeAgentsMd: false` in the lock) to skip that rewrite and remove a previous block.
 
 `add` writes `.agent/plugins.json` first, then copies and updates the lock. `--no-sync`
 writes only the request. `sync` deletes plugins that are no longer requested.
@@ -72,10 +80,15 @@ The request, committed with the project:
 
 The resolved install, also committed. `resolved` is the commit SHA `ref` pointed at
 when sync ran. `paths` and `mcpKeys` are everything that sync wrote for that plugin.
+`agentsSnippets` holds each skill's `DEFAULT_USAGE.md` body for the `AGENTS.md` block.
+`writeAgentsMd` (default `true`) controls whether sync writes that block. Set it to
+`false`, or pass `--no-agents-md`, to leave `AGENTS.md` alone and strip a previous
+marked block.
 
 ```json
 {
   "lockfileVersion": 2,
+  "writeAgentsMd": true,
   "plugins": [
     {
       "marketplace": "owner/marketplace-repo",
@@ -83,7 +96,13 @@ when sync ran. `paths` and `mcpKeys` are everything that sync wrote for that plu
       "ref": "v0.1.0",
       "resolved": "0123456789abcdef0123456789abcdef01234567",
       "paths": [".claude/skills/plugin-name", ".cursor/skills/plugin-name"],
-      "mcpKeys": {}
+      "mcpKeys": {},
+      "agentsSnippets": [
+        {
+          "skill": "plugin-name",
+          "body": "- **Example.** If the `plugin-name` skill is available, …"
+        }
+      ]
     }
   ]
 }

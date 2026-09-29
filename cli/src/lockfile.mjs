@@ -6,12 +6,13 @@ import { AGENT_DIR, LOCK_FILE, lockPath } from "./paths.mjs";
 export const LOCKFILE_FORMAT = 2;
 
 /**
- * @typedef {{ marketplace: string, name: string, ref: string, resolved: string, paths: string[], mcpKeys: Record<string, string[]> }} LockEntry
- * @typedef {{ lockfileVersion: number, plugins: LockEntry[] }} Lockfile
+ * @typedef {{ skill: string, body: string }} AgentsSnippet
+ * @typedef {{ marketplace: string, name: string, ref: string, resolved: string, paths: string[], mcpKeys: Record<string, string[]>, agentsSnippets: AgentsSnippet[] }} LockEntry
+ * @typedef {{ lockfileVersion: number, writeAgentsMd: boolean, plugins: LockEntry[] }} Lockfile
  */
 
 export function emptyLockfile() {
-  return { lockfileVersion: LOCKFILE_FORMAT, plugins: [] };
+  return { lockfileVersion: LOCKFILE_FORMAT, writeAgentsMd: true, plugins: [] };
 }
 
 export function entryId(entry) {
@@ -36,11 +37,25 @@ export function parsePluginSpec(spec) {
   );
 }
 
+function normalizeSnippet(snippet, pluginIndex, snippetIndex) {
+  if (!snippet || typeof snippet !== "object") {
+    throw new Error(
+      `${LOCK_FILE} plugins[${pluginIndex}].agentsSnippets[${snippetIndex}] is not an object`,
+    );
+  }
+  if (!snippet.skill || typeof snippet.body !== "string") {
+    throw new Error(
+      `${LOCK_FILE} plugins[${pluginIndex}].agentsSnippets[${snippetIndex}] requires skill and body`,
+    );
+  }
+  return { skill: snippet.skill, body: snippet.body };
+}
+
 function normalizeEntry(plugin, index) {
   if (!plugin || typeof plugin !== "object") {
     throw new Error(`${LOCK_FILE} plugins[${index}] is not an object`);
   }
-  const { marketplace, name, ref, resolved, paths, mcpKeys } = plugin;
+  const { marketplace, name, ref, resolved, paths, mcpKeys, agentsSnippets } = plugin;
   if (!marketplace || !name || !ref || !resolved) {
     throw new Error(
       `${LOCK_FILE} plugins[${index}] requires marketplace, name, ref, and resolved`,
@@ -52,6 +67,9 @@ function normalizeEntry(plugin, index) {
   if (!mcpKeys || typeof mcpKeys !== "object" || Array.isArray(mcpKeys)) {
     throw new Error(`${LOCK_FILE} plugins[${index}].mcpKeys must be an object`);
   }
+  const snippets = Array.isArray(agentsSnippets)
+    ? agentsSnippets.map((snippet, i) => normalizeSnippet(snippet, index, i))
+    : [];
   return {
     marketplace,
     name,
@@ -59,6 +77,7 @@ function normalizeEntry(plugin, index) {
     resolved,
     paths: [...paths],
     mcpKeys,
+    agentsSnippets: snippets,
   };
 }
 
@@ -81,6 +100,7 @@ export function normalizeLockfile(raw) {
   }
   return {
     lockfileVersion: LOCKFILE_FORMAT,
+    writeAgentsMd: raw.writeAgentsMd !== false,
     plugins: raw.plugins.map(normalizeEntry),
   };
 }
@@ -100,11 +120,16 @@ export function writeLockfile(projectRoot, lock) {
   const file = lockPath(projectRoot);
   const normalized = normalizeLockfile({
     lockfileVersion: LOCKFILE_FORMAT,
+    writeAgentsMd: lock.writeAgentsMd !== false,
     plugins: lock.plugins,
   });
   normalized.plugins.sort((a, b) => entryId(a).localeCompare(entryId(b)));
   fs.writeFileSync(file, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return file;
+}
+
+export function setWriteAgentsMd(lock, writeAgentsMd) {
+  return { ...lock, writeAgentsMd: writeAgentsMd !== false };
 }
 
 export function upsertLockEntry(lock, record) {

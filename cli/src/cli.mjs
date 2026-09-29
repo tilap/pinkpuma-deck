@@ -3,6 +3,7 @@ import path from "node:path";
 import {
   applyAll,
   applyEntry,
+  commitLockAndAgents,
   removeInstalledFiles,
 } from "./apply.mjs";
 import {
@@ -11,8 +12,8 @@ import {
   parsePluginSpec,
   readLockfile,
   removeLockEntry,
+  setWriteAgentsMd,
   upsertLockEntry,
-  writeLockfile,
 } from "./lockfile.mjs";
 import { LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
 import {
@@ -28,9 +29,9 @@ function usage() {
 
 Usage:
   deck init [--project <dir>]
-  deck add <owner/repo@plugin> [--ref <ref>] [--project <dir>] [--no-sync]
-  deck remove <owner/repo@plugin> [--project <dir>] [--keep-files]
-  deck sync [--project <dir>]
+  deck add <owner/repo@plugin> [--ref <ref>] [--project <dir>] [--no-sync] [--no-agents-md|--agents-md]
+  deck remove <owner/repo@plugin> [--project <dir>] [--keep-files] [--no-agents-md|--agents-md]
+  deck sync [--project <dir>] [--no-agents-md|--agents-md]
   deck list [--project <dir>]
 
 Request: ${PLUGINS_FILE}
@@ -38,11 +39,21 @@ Lock:    ${LOCK_FILE}
 Copies skills/agents into .claude/ and .cursor/, plus per-plugin support files
 under .claude/plugins and .cursor/plugins. Merges MCP into .mcp.json and .cursor/mcp.json.
 Recorded paths are replaced on sync and deleted on remove.
+When AGENTS.md exists and lock.writeAgentsMd is true (default), sync rewrites a marked
+Skills block from each skill's DEFAULT_USAGE.md. --no-agents-md sets writeAgentsMd to
+false in the lock and removes that block; --agents-md turns it back on.
 `;
 }
 
 function parseArgs(argv) {
-  const args = { _: [], project: process.cwd(), sync: true, keepFiles: false, ref: "main" };
+  const args = {
+    _: [],
+    project: process.cwd(),
+    sync: true,
+    keepFiles: false,
+    ref: "main",
+    writeAgentsMd: undefined,
+  };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--project" || a === "-C") {
@@ -53,6 +64,10 @@ function parseArgs(argv) {
       args.sync = false;
     } else if (a === "--keep-files") {
       args.keepFiles = true;
+    } else if (a === "--no-agents-md") {
+      args.writeAgentsMd = false;
+    } else if (a === "--agents-md") {
+      args.writeAgentsMd = true;
     } else if (a === "--help" || a === "-h") {
       args.help = true;
     } else if (a.startsWith("-")) {
@@ -62,6 +77,11 @@ function parseArgs(argv) {
     }
   }
   return args;
+}
+
+function withAgentsMdPreference(lock, writeAgentsMd) {
+  if (writeAgentsMd === undefined) return lock;
+  return setWriteAgentsMd(lock, writeAgentsMd);
 }
 
 function printResults(results) {
@@ -107,9 +127,12 @@ async function main() {
         console.log(`Added ${entryId(entry)} @ ${args.ref} to ${PLUGINS_FILE}`);
         break;
       }
-      const lock = readLockfile(root) ?? emptyLockfile();
+      const lock = withAgentsMdPreference(
+        readLockfile(root) ?? emptyLockfile(),
+        args.writeAgentsMd,
+      );
       const result = applyEntry(root, entry, lock);
-      writeLockfile(root, upsertLockEntry(lock, result.record));
+      commitLockAndAgents(root, upsertLockEntry(lock, result.record));
       console.log(`Locked ${entryId(entry)} @ ${args.ref}`);
       console.log("Applied:");
       printResults([result]);
@@ -121,14 +144,17 @@ async function main() {
       const doc = readPlugins(root);
       if (!doc) throw new Error(`No ${PLUGINS_FILE} — run init or add first`);
       const { marketplace, name } = parsePluginSpec(spec);
-      const lock = readLockfile(root) ?? emptyLockfile();
+      const lock = withAgentsMdPreference(
+        readLockfile(root) ?? emptyLockfile(),
+        args.writeAgentsMd,
+      );
       const record = lock.plugins.find(
         (plugin) => plugin.marketplace === marketplace && plugin.name === name,
       );
       const nextDoc = removePlugin(doc, spec);
       if (record && !args.keepFiles) removeInstalledFiles(root, record);
       writePlugins(root, nextDoc);
-      writeLockfile(root, removeLockEntry(lock, spec));
+      commitLockAndAgents(root, removeLockEntry(lock, spec));
       console.log(`Removed ${entryId({ marketplace, name })}`);
       break;
     }
@@ -137,13 +163,19 @@ async function main() {
       const doc = readPlugins(root);
       if (!doc) throw new Error(`No ${PLUGINS_FILE} — run init or add first`);
       if (doc.plugins.length === 0) {
-        const lock = readLockfile(root) ?? emptyLockfile();
+        const lock = withAgentsMdPreference(
+          readLockfile(root) ?? emptyLockfile(),
+          args.writeAgentsMd,
+        );
         applyAll(root, doc, lock);
         console.log("No plugins requested — nothing to sync");
         break;
       }
       console.log(`Syncing ${doc.plugins.length} plugin(s)…`);
-      const lock = readLockfile(root) ?? emptyLockfile();
+      const lock = withAgentsMdPreference(
+        readLockfile(root) ?? emptyLockfile(),
+        args.writeAgentsMd,
+      );
       const results = applyAll(root, doc, lock);
       console.log("Done:");
       printResults(results);
