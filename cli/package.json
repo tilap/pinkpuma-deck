@@ -7,9 +7,10 @@
     "node": ">=22.14"
   },
   "bin": {
-    "deck": "./src/cli.mjs"
+    "deck": "bin/deck.js"
   },
   "files": [
+    "bin/**",
     "src/**/*.mjs",
     "README.md"
   ],
