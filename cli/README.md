@@ -1,7 +1,7 @@
 # @pinkpuma/deck
 
-Install and sync Claude Code / Cursor marketplace plugins into a consumer project,
-driven by `.agent/plugins.lock.json`.
+Install and sync Claude Code / Cursor marketplace plugins into a consumer project.
+`.agent/plugins.json` is the request. `.agent/plugins.lock.json` is the resolved install.
 
 ```bash
 npm i -g @pinkpuma/deck
@@ -15,13 +15,13 @@ deck --help
 
 ## Commands
 
-| Command                                            | Effect                                                                    |
-| -------------------------------------------------- | ------------------------------------------------------------------------- |
-| `init`                                             | Create an empty `.agent/plugins.lock.json`                                |
-| `add owner/repo@plugin [--ref <tag\|branch\|sha>]` | Lock the plugin and sync (use `--no-sync` to skip copy)                   |
-| `remove owner/repo@plugin`                         | Drop from lock and delete vendored files (`--keep-files` to leave copies) |
-| `sync`                                             | Re-download every locked plugin and refresh copies                        |
-| `list`                                             | Show lock entries                                                         |
+| Command                                            | Effect                                                                           |
+| -------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `init`                                             | Create an empty `.agent/plugins.json`                                            |
+| `add owner/repo@plugin [--ref <tag\|branch\|sha>]` | Add the request and sync (use `--no-sync` to record the request without copying) |
+| `remove owner/repo@plugin`                         | Drop the request and delete installed files (`--keep-files` to leave the copies) |
+| `sync`                                             | Re-download every requested plugin, refresh copies, and rewrite the lock         |
+| `list`                                             | Show requested plugins and, when synced, the resolved commit                     |
 
 `--project <dir>` (or `-C`) scopes all commands to that project root (default: cwd).
 
@@ -40,22 +40,22 @@ For each locked plugin, the CLI clones the GitHub marketplace at `ref`, resolves
 Relative links in an installed skill that point at those other plugin files are rewritten
 to the per-plugin directory, so two plugins can both ship a `CONVENTIONS.md`.
 
-An existing skill directory or agent file is left in place and is not recorded in the
-vendor manifest, so `remove` does not delete it.
+Sync replaces those paths. Remove deletes every path recorded in the lock for that
+plugin, including a file that was already there before the first install.
 
-`add` writes the lock only after the copy succeeds. `--no-sync` writes the lock without
-copying. `sync` deletes vendored plugins that are no longer in the lock. `remove
---keep-files` drops the lock entry and the vendor manifest, and leaves the copied files.
+`add` writes `.agent/plugins.json` first, then copies and updates the lock. `--no-sync`
+writes only the request. `sync` deletes plugins that are no longer requested.
+`remove --keep-files` drops both entries and leaves the copied files.
 
 MCP server keys are namespaced (`deck__owner_repo__plugin__server`) so sync does not
-clobber unrelated servers. A per-plugin manifest under `.agent/vendor/` tracks what was
-installed so `remove` / re-`sync` can replace cleanly.
+clobber unrelated servers. The lock records those keys so remove can drop them.
 
-## Lockfile
+## plugins.json
+
+The request, committed with the project:
 
 ```json
 {
-  "lockfileVersion": 1,
   "plugins": [
     {
       "marketplace": "owner/marketplace-repo",
@@ -66,13 +66,35 @@ installed so `remove` / re-`sync` can replace cleanly.
 }
 ```
 
-`lockfileVersion` is the **format** version of this file (not a plugin semver). The CLI
-refuses unknown versions so an old binary cannot silently mis-apply a newer schema.
+`ref` is the tag, branch, or commit you asked for.
 
-Commit the lockfile. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
-plugin asset directories, and generated MCP keys — or commit the vendored copies for
-offline clones. Cache clones live under `~/.cache/pinkpuma-deck/` (override with
-`DECK_CACHE`).
+## plugins.lock.json
+
+The resolved install, also committed. `resolved` is the commit SHA `ref` pointed at
+when sync ran. `paths` and `mcpKeys` are everything that sync wrote for that plugin.
+
+```json
+{
+  "lockfileVersion": 2,
+  "plugins": [
+    {
+      "marketplace": "owner/marketplace-repo",
+      "name": "plugin-name",
+      "ref": "v0.1.0",
+      "resolved": "0123456789abcdef0123456789abcdef01234567",
+      "paths": [".claude/skills/plugin-name", ".cursor/skills/plugin-name"],
+      "mcpKeys": {}
+    }
+  ]
+}
+```
+
+`lockfileVersion` is the **format** version of this file (not a plugin semver). The CLI
+refuses unknown versions.
+
+Commit both files. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
+plugin asset directories, and generated MCP keys — or commit those copies for offline
+clones. Cache clones live under `~/.cache/pinkpuma-deck/` (override with `DECK_CACHE`).
 
 To install from a local checkout instead of GitHub, set `DECK_LOCAL_<owner>__<repo>`
 to that checkout. The current branch name and `HEAD` use the working tree, including

@@ -38,6 +38,10 @@ function localSource(marketplace) {
   return value;
 }
 
+function headCommit(dir) {
+  return run("git", ["-C", dir, "rev-parse", "HEAD"]).trim();
+}
+
 function fetchLocalMarketplace(source, marketplace, ref) {
   const dest = path.join(cacheRoot(), marketplace, ref.replace(/[^\w.-]+/g, "_"));
   fs.mkdirSync(path.dirname(dest), { recursive: true });
@@ -52,15 +56,16 @@ function fetchLocalMarketplace(source, marketplace, ref) {
         return rel === "" || (rel !== ".git" && !rel.startsWith(`.git${path.sep}`));
       },
     });
-    return dest;
+    return { root: dest, resolved: headCommit(source) };
   }
   run("git", ["clone", "--local", source, dest]);
   run("git", ["-C", dest, "checkout", "--force", ref]);
-  return dest;
+  return { root: dest, resolved: headCommit(dest) };
 }
 
 /**
- * Fetch owner/repo at ref into a local cache dir. Returns absolute path.
+ * Fetch owner/repo at ref into a local cache dir.
+ * Returns the checkout path and the commit SHA that ref resolved to.
  * Uses git credentials already configured on the machine, unless a DECK_LOCAL_*
  * checkout is set for this marketplace.
  */
@@ -83,7 +88,7 @@ export function fetchMarketplace(marketplace, ref) {
     } catch {
       run("git", ["-C", dest, "checkout", "--force", ref]);
     }
-    return dest;
+    return { root: dest, resolved: headCommit(dest) };
   }
 
   if (fs.existsSync(dest)) {
@@ -97,12 +102,12 @@ export function fetchMarketplace(marketplace, ref) {
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   );
   if (shallow.status === 0) {
-    return dest;
+    return { root: dest, resolved: headCommit(dest) };
   }
 
   run("git", ["clone", url, dest]);
   run("git", ["-C", dest, "checkout", "--force", ref]);
-  return dest;
+  return { root: dest, resolved: headCommit(dest) };
 }
 
 /**

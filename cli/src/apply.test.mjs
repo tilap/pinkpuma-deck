@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { installFromPluginDir, pruneStaleEntries, uninstallEntry } from "./apply.mjs";
+import { installFromPluginDir, pruneStaleEntries, removeInstalledFiles } from "./apply.mjs";
 
 function writeTree(root, files) {
   for (const [rel, body] of Object.entries(files)) {
@@ -41,6 +41,9 @@ test("installFromPluginDir copies skills, agents, and mcp for both hosts", () =>
   assert.equal(result.agents, 1);
   assert.equal(result.mcp, 1);
   assert.equal(result.pluginVersion, "0.2.0");
+  assert.ok(result.record.paths.includes(".claude/skills/hello"));
+  assert.ok(result.record.paths.includes(".cursor/skills/hello"));
+  assert.deepEqual(result.record.mcpKeys[".mcp.json"], ["deck__acme_kit__demo__demo"]);
 
   assert.ok(
     fs.existsSync(path.join(project, ".claude/skills/hello/SKILL.md")),
@@ -61,12 +64,12 @@ test("installFromPluginDir copies skills, agents, and mcp for both hosts", () =>
   assert.ok(claudeMcp.mcpServers[key]);
   assert.ok(cursorMcp.mcpServers[key]);
 
-  uninstallEntry(project, entry);
+  removeInstalledFiles(project, result.record);
   assert.ok(!fs.existsSync(path.join(project, ".claude/skills/hello")));
   assert.ok(!fs.existsSync(path.join(project, ".mcp.json")));
 });
 
-test("install keeps an existing agent and does not delete it on uninstall", () => {
+test("install replaces an existing agent and remove deletes it", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mk-apply-"));
   const plugin = path.join(tmp, "plugin");
   const project = path.join(tmp, "project");
@@ -82,22 +85,18 @@ test("install keeps an existing agent and does not delete it on uninstall", () =
   });
   const entry = { marketplace: "acme/kit", name: "demo", ref: "main" };
   const result = installFromPluginDir(project, entry, plugin);
-  assert.ok(result.skipped.includes(".claude/agents/reviewer.md"));
   assert.equal(
     fs.readFileSync(path.join(project, ".claude/agents/reviewer.md"), "utf8"),
-    "# USER OWNED\n",
+    "# Plugin reviewer\n",
   );
-  assert.ok(fs.existsSync(path.join(project, ".claude/agents/other.md")));
+  assert.ok(result.record.paths.includes(".claude/agents/reviewer.md"));
 
-  uninstallEntry(project, entry);
-  assert.equal(
-    fs.readFileSync(path.join(project, ".claude/agents/reviewer.md"), "utf8"),
-    "# USER OWNED\n",
-  );
+  removeInstalledFiles(project, result.record);
+  assert.ok(!fs.existsSync(path.join(project, ".claude/agents/reviewer.md")));
   assert.ok(!fs.existsSync(path.join(project, ".claude/agents/other.md")));
 });
 
-test("support files are vendored per plugin and skill links are rewritten", () => {
+test("support files are copied per plugin and skill links are rewritten", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mk-apply-"));
   const project = path.join(tmp, "project");
   fs.mkdirSync(project);
@@ -134,7 +133,7 @@ test("support files are vendored per plugin and skill links are rewritten", () =
   assert.equal(fs.readFileSync(templateFile, "utf8"), "name: publish\n");
 });
 
-test("pruneStaleEntries removes plugins missing from the lock", () => {
+test("pruneStaleEntries removes plugins missing from the request", () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mk-apply-"));
   const project = path.join(tmp, "project");
   fs.mkdirSync(project);
@@ -144,9 +143,47 @@ test("pruneStaleEntries removes plugins missing from the lock", () => {
   writeTree(dropDir, { "skills/drop/SKILL.md": "# drop\n" });
   const keep = { marketplace: "acme/kit", name: "keep", ref: "main" };
   const drop = { marketplace: "acme/kit", name: "drop", ref: "main" };
-  installFromPluginDir(project, keep, keepDir);
-  installFromPluginDir(project, drop, dropDir);
-  pruneStaleEntries(project, { plugins: [keep] });
+  const keepResult = installFromPluginDir(project, keep, keepDir);
+  const dropResult = installFromPluginDir(project, drop, dropDir);
+  const lock = {
+    lockfileVersion: 2,
+    plugins: [
+      { ...keepResult.record, resolved: "aaa" },
+      { ...dropResult.record, resolved: "bbb" },
+    ],
+  };
+  const pruned = pruneStaleEntries(project, { plugins: [keep] }, lock);
+  assert.deepEqual(pruned.removed, ["acme/kit@drop"]);
+  assert.equal(pruned.lock.plugins.length, 1);
+  assert.equal(pruned.lock.plugins[0].name, "keep");
   assert.ok(fs.existsSync(path.join(project, ".claude/skills/keep/SKILL.md")));
   assert.ok(!fs.existsSync(path.join(project, ".claude/skills/drop/SKILL.md")));
+});
+
+test("reinstall deletes a skill the plugin no longer ships", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "mk-apply-"));
+  const project = path.join(tmp, "project");
+  fs.mkdirSync(project);
+  const before = path.join(tmp, "before");
+  const after = path.join(tmp, "after");
+  writeTree(before, {
+    "skills/gone/SKILL.md": "# gone\n",
+    "skills/stay/SKILL.md": "# stay v1\n",
+  });
+  writeTree(after, {
+    "skills/stay/SKILL.md": "# stay v2\n",
+  });
+  const entry = { marketplace: "acme/kit", name: "demo", ref: "main" };
+  const first = installFromPluginDir(project, entry, before);
+  const second = installFromPluginDir(project, entry, after, {
+    ...first.record,
+    resolved: "aaa",
+  });
+  assert.equal(
+    fs.readFileSync(path.join(project, ".claude/skills/stay/SKILL.md"), "utf8"),
+    "# stay v2\n",
+  );
+  assert.ok(!fs.existsSync(path.join(project, ".claude/skills/gone")));
+  assert.ok(!second.record.paths.includes(".claude/skills/gone"));
+  assert.ok(second.record.paths.includes(".claude/skills/stay"));
 });

@@ -107,7 +107,9 @@ npx @pinkpuma/deck sync --project /path/to/app
 ```
 
 It copies skills and agents into both `.claude/` and `.cursor/`, and merges MCP servers
-into `.mcp.json` and `.cursor/mcp.json`. The lockfile is `.agent/plugins.lock.json`.
+into `.mcp.json` and `.cursor/mcp.json`. `.agent/plugins.json` lists what to install.
+`.agent/plugins.lock.json` records the resolved commit and the paths that sync wrote.
+Commit both.
 
 When changing the CLI:
 

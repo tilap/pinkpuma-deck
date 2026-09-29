@@ -1,13 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { fetchMarketplace, resolvePluginDir } from "./github.mjs";
-import { entryId } from "./lockfile.mjs";
-import {
-  HOSTS,
-  VENDOR_MANIFEST_DIR,
-  pluginAssetRel,
-  vendorManifestPath,
-} from "./paths.mjs";
+import { entryId, emptyLockfile, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
+import { HOSTS, pluginAssetRel } from "./paths.mjs";
 
 const ASSET_SKIP = new Set([
   "skills",
@@ -154,18 +149,12 @@ function rewriteSkillLinks(pluginDir, skillName, destSkillDir, assetDir) {
 }
 
 /**
- * Remove previously vendored files for this entry (from manifest).
+ * Delete the files and MCP keys recorded for one resolved plugin.
+ * Paths in the lock are owned by deck, including files that existed before install.
  */
-export function uninstallEntry(projectRoot, entry) {
-  const id = entryId(entry);
-  const manifestFile = vendorManifestPath(projectRoot, id);
-  if (!fs.existsSync(manifestFile)) {
-    return { removed: [] };
-  }
-  const manifest = JSON.parse(fs.readFileSync(manifestFile, "utf8"));
+export function removeInstalledFiles(projectRoot, record) {
   const removed = [];
-
-  for (const rel of manifest.paths || []) {
+  for (const rel of record?.paths || []) {
     const abs = path.join(projectRoot, rel);
     if (fs.existsSync(abs)) {
       fs.rmSync(abs, { recursive: true, force: true });
@@ -173,7 +162,7 @@ export function uninstallEntry(projectRoot, entry) {
     }
   }
 
-  for (const [mcpRel, keys] of Object.entries(manifest.mcpKeys || {})) {
+  for (const [mcpRel, keys] of Object.entries(record?.mcpKeys || {})) {
     const abs = path.join(projectRoot, mcpRel);
     if (!fs.existsSync(abs)) continue;
     const doc = readMcpFile(abs);
@@ -187,77 +176,64 @@ export function uninstallEntry(projectRoot, entry) {
     }
   }
 
-  fs.rmSync(manifestFile, { force: true });
   return { removed };
 }
 
-/** Drop the vendor manifest and leave copied files in place. */
-export function dropVendorManifest(projectRoot, entry) {
-  fs.rmSync(vendorManifestPath(projectRoot, entryId(entry)), { force: true });
-}
-
 /**
- * Uninstall vendor manifests whose plugin is no longer in the lock.
+ * Drop lock entries that are no longer requested, and delete their files.
  */
-export function pruneStaleEntries(projectRoot, lock) {
-  const dir = path.join(projectRoot, VENDOR_MANIFEST_DIR);
-  if (!fs.existsSync(dir)) return [];
-  const wanted = new Set((lock.plugins || []).map((plugin) => entryId(plugin)));
+export function pruneStaleEntries(projectRoot, pluginsDoc, lock) {
+  const wanted = new Set((pluginsDoc.plugins || []).map((plugin) => entryId(plugin)));
+  const kept = [];
   const removed = [];
-  for (const name of fs.readdirSync(dir)) {
-    if (!name.endsWith(".json")) continue;
-    const abs = path.join(dir, name);
-    const manifest = JSON.parse(fs.readFileSync(abs, "utf8"));
-    if (!manifest?.id || wanted.has(manifest.id)) continue;
-    if (!manifest.marketplace || !manifest.name) continue;
-    uninstallEntry(projectRoot, {
-      marketplace: manifest.marketplace,
-      name: manifest.name,
-    });
-    removed.push(manifest.id);
+  for (const record of lock?.plugins || []) {
+    if (wanted.has(entryId(record))) {
+      kept.push(record);
+      continue;
+    }
+    removeInstalledFiles(projectRoot, record);
+    removed.push(entryId(record));
   }
-  return removed;
+  return { lock: { ...lock, plugins: kept }, removed };
+}
+
+function replaceDir(src, dest) {
+  fs.rmSync(dest, { recursive: true, force: true });
+  copyDir(src, dest);
 }
 
 /**
- * Copy one plugin directory into Claude + Cursor project paths.
- * Existing skill directories and agent files are left untouched and are not
- * recorded, so a later remove cannot delete them.
+ * Copy one plugin directory into Claude and Cursor project paths.
+ * Replaces any previous copy of those paths. `previous` is the lock record
+ * from the last sync, used to delete paths this version no longer ships.
  */
-export function installFromPluginDir(projectRoot, entry, pluginDir) {
-  uninstallEntry(projectRoot, entry);
+export function installFromPluginDir(projectRoot, entry, pluginDir, previous) {
+  if (previous) removeInstalledFiles(projectRoot, previous);
 
-  const installed = {
-    id: entryId(entry),
-    marketplace: entry.marketplace,
-    name: entry.name,
-    ref: entry.ref,
-    pluginVersion: null,
-    paths: [],
-    mcpKeys: {},
-  };
-  const skipped = [];
+  const id = entryId(entry);
+  const paths = [];
+  const mcpKeys = {};
   const assetDirs = {};
+  let pluginVersion = null;
 
   for (const manifestRel of [
     ".claude-plugin/plugin.json",
     ".cursor-plugin/plugin.json",
   ]) {
     const mf = path.join(pluginDir, manifestRel);
-    if (fs.existsSync(mf)) {
-      const j = JSON.parse(fs.readFileSync(mf, "utf8"));
-      if (j.version) {
-        installed.pluginVersion = j.version;
-        break;
-      }
+    if (!fs.existsSync(mf)) continue;
+    const manifest = JSON.parse(fs.readFileSync(mf, "utf8"));
+    if (manifest.version) {
+      pluginVersion = manifest.version;
+      break;
     }
   }
 
   for (const host of Object.values(HOSTS)) {
-    const assetRel = pluginAssetRel(host, installed.id);
+    const assetRel = pluginAssetRel(host, id);
     const assetDir = path.join(projectRoot, assetRel);
     if (copyPluginAssets(pluginDir, assetDir)) {
-      installed.paths.push(assetRel);
+      paths.push(assetRel);
     }
     assetDirs[host.skills] = assetDir;
   }
@@ -268,13 +244,9 @@ export function installFromPluginDir(projectRoot, entry, pluginDir) {
     for (const host of Object.values(HOSTS)) {
       const rel = path.join(host.skills, skill);
       const dest = path.join(projectRoot, rel);
-      if (fs.existsSync(dest)) {
-        skipped.push(rel);
-        continue;
-      }
-      copyDir(src, dest);
+      replaceDir(src, dest);
       rewriteSkillLinks(pluginDir, skill, dest, assetDirs[host.skills]);
-      installed.paths.push(rel);
+      paths.push(rel);
     }
   }
 
@@ -284,13 +256,10 @@ export function installFromPluginDir(projectRoot, entry, pluginDir) {
     for (const host of Object.values(HOSTS)) {
       const rel = path.join(host.agents, agentFile);
       const dest = path.join(projectRoot, rel);
-      if (fs.existsSync(dest)) {
-        skipped.push(rel);
-        continue;
-      }
+      fs.rmSync(dest, { force: true });
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(src, dest);
-      installed.paths.push(rel);
+      paths.push(rel);
     }
   }
 
@@ -306,43 +275,65 @@ export function installFromPluginDir(projectRoot, entry, pluginDir) {
         keys.push(key);
       }
       writeMcpFile(abs, doc);
-      installed.mcpKeys[host.mcp] = keys;
+      mcpKeys[host.mcp] = keys;
     }
   }
 
-  fs.mkdirSync(path.join(projectRoot, VENDOR_MANIFEST_DIR), { recursive: true });
-  const manifestFile = vendorManifestPath(projectRoot, installed.id);
-  fs.writeFileSync(
-    manifestFile,
-    `${JSON.stringify(installed, null, 2)}\n`,
-    "utf8",
-  );
-
+  paths.sort();
   return {
-    id: installed.id,
+    id,
     skills: skills.length,
     agents: agents.length,
     mcp: mcpServers ? Object.keys(mcpServers).length : 0,
-    pluginVersion: installed.pluginVersion,
-    skipped,
+    pluginVersion,
+    record: {
+      marketplace: entry.marketplace,
+      name: entry.name,
+      ref: entry.ref,
+      resolved: "",
+      paths,
+      mcpKeys,
+    },
   };
 }
 
 /**
- * Fetch and copy one lock entry into Claude + Cursor project paths.
+ * Fetch and copy one requested plugin. `lock` supplies the previous record
+ * so paths that disappeared can be deleted.
  */
-export function applyEntry(projectRoot, entry) {
-  const repoRoot = fetchMarketplace(entry.marketplace, entry.ref);
-  const pluginDir = resolvePluginDir(repoRoot, entry.name);
-  const result = installFromPluginDir(projectRoot, entry, pluginDir);
-  return { ...result, cache: repoRoot };
+export function applyEntry(projectRoot, entry, lock) {
+  const fetched = fetchMarketplace(entry.marketplace, entry.ref);
+  const pluginDir = resolvePluginDir(fetched.root, entry.name);
+  const previous = (lock?.plugins || []).find(
+    (plugin) => entryId(plugin) === entryId(entry),
+  );
+  const installed = installFromPluginDir(projectRoot, entry, pluginDir, previous);
+  return {
+    ...installed,
+    record: { ...installed.record, resolved: fetched.resolved },
+    cache: fetched.root,
+  };
 }
 
-export function applyAll(projectRoot, lock) {
-  pruneStaleEntries(projectRoot, lock);
+/**
+ * Install every requested plugin and drop lock records that are no longer requested.
+ * Writes the lock after the prune and after each plugin so a later failure
+ * still describes what is on disk.
+ */
+export function applyAll(projectRoot, pluginsDoc, lock) {
+  let current = pruneStaleEntries(
+    projectRoot,
+    pluginsDoc,
+    lock ?? emptyLockfile(),
+  ).lock;
+  writeLockfile(projectRoot, current);
   const results = [];
-  for (const entry of lock.plugins) {
-    results.push(applyEntry(projectRoot, entry));
+  for (const entry of pluginsDoc.plugins) {
+    const result = applyEntry(projectRoot, entry, current);
+    current = upsertLockEntry(current, result.record);
+    writeLockfile(projectRoot, current);
+    results.push(result);
   }
   return results;
 }
+

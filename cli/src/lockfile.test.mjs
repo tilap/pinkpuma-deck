@@ -4,15 +4,24 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  addEntry,
   emptyLockfile,
   entryId,
   normalizeLockfile,
   parsePluginSpec,
-  removeEntry,
-  writeLockfile,
   readLockfile,
+  removeLockEntry,
+  upsertLockEntry,
+  writeLockfile,
 } from "./lockfile.mjs";
+
+const record = {
+  marketplace: "acme/kit",
+  name: "foo",
+  ref: "v1.0.0",
+  resolved: "abc123",
+  paths: [".claude/skills/foo"],
+  mcpKeys: {},
+};
 
 test("parsePluginSpec accepts owner/repo@plugin", () => {
   assert.deepEqual(parsePluginSpec("acme/kit@foo"), {
@@ -28,44 +37,37 @@ test("parsePluginSpec accepts owner/repo/plugin", () => {
   });
 });
 
-test("add and remove lock entries", () => {
+test("upsert and remove lock entries", () => {
   let lock = emptyLockfile();
-  lock = addEntry(lock, {
-    marketplace: "acme/kit",
-    name: "foo",
-    ref: "v1.0.0",
-  });
-  lock = addEntry(lock, {
-    marketplace: "acme/kit",
+  lock = upsertLockEntry(lock, record);
+  lock = upsertLockEntry(lock, {
+    ...record,
     name: "bar",
     ref: "main",
+    resolved: "def456",
   });
   assert.equal(lock.plugins.length, 2);
-  assert.equal(entryId(lock.plugins[0]), "acme/kit@bar");
-  lock = removeEntry(lock, "acme/kit@foo");
+  assert.equal(entryId(lock.plugins[0]), "acme/kit@foo");
+  lock = removeLockEntry(lock, "acme/kit@foo");
   assert.equal(lock.plugins.length, 1);
   assert.equal(lock.plugins[0].name, "bar");
 });
 
 test("write and read lockfile", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
-  let lock = emptyLockfile();
-  lock = addEntry(lock, {
-    marketplace: "acme/kit",
-    name: "foo",
-    ref: "main",
-  });
+  const lock = upsertLockEntry(emptyLockfile(), record);
   writeLockfile(dir, lock);
   const round = readLockfile(dir);
-  assert.equal(round.lockfileVersion, 1);
+  assert.equal(round.lockfileVersion, 2);
   assert.equal(round.plugins.length, 1);
-  assert.equal(round.plugins[0].marketplace, "acme/kit");
+  assert.equal(round.plugins[0].resolved, "abc123");
+  assert.deepEqual(round.plugins[0].paths, [".claude/skills/foo"]);
 });
 
 test("rejects unsupported lockfileVersion", () => {
   assert.throws(
-    () => normalizeLockfile({ lockfileVersion: 99, plugins: [] }),
-    /lockfileVersion 99/,
+    () => normalizeLockfile({ lockfileVersion: 1, plugins: [] }),
+    /lockfileVersion 1/,
   );
 });
 
@@ -73,5 +75,16 @@ test("rejects missing lockfileVersion", () => {
   assert.throws(
     () => normalizeLockfile({ version: 1, plugins: [] }),
     /missing lockfileVersion/,
+  );
+});
+
+test("rejects a lock entry without a resolved commit", () => {
+  assert.throws(
+    () =>
+      normalizeLockfile({
+        lockfileVersion: 2,
+        plugins: [{ marketplace: "acme/kit", name: "foo", ref: "main", paths: [], mcpKeys: {} }],
+      }),
+    /resolved/,
   );
 });
