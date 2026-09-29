@@ -54,4 +54,4 @@ jobs:
       # Fully automated publish via npm Trusted Publishing (OIDC).
       # Trusted Publisher must allow "npm publish" for publish-deck.yml.
       - name: Publish
-        run: npm publish --access public --provenance
+        run: npm publish --access public
