@@ -10,7 +10,7 @@ permissions:
   id-token: write # OIDC for npm trusted publishing
 
 jobs:
-  stage:
+  publish:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,7 +52,8 @@ jobs:
       - name: Test
         run: npm test
 
-      # Stages the tarball; a maintainer must approve with 2FA (npm stage approve).
-      # Requires a Trusted Publisher on npmjs.com for this workflow (see HOWTO / cli README).
-      - name: Stage on npm
-        run: npm stage publish --access public
+      # Fully automated publish via npm Trusted Publishing (OIDC).
+      # On npmjs.com → package → Trusted Publisher: allow "npm publish"
+      # for workflow publish-deck.yml (tilap/pinkpuma-deck). No NPM_TOKEN.
+      - name: Publish
+        run: npm publish --access public --provenance

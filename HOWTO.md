@@ -116,9 +116,9 @@ cd cli && npm test
 ```
 
 Release: bump `cli/package.json` `version`, push to `main`, then tag `deck-vX.Y.Z`.
-GitHub Actions **stages** the package via npm Trusted Publishing (OIDC, no bypass-2FA
-token). Approve with 2FA: `npm stage approve @pinkpuma/deck@X.Y.Z`. See
-[cli/README.md](cli/README.md#release).
+GitHub Actions publishes via npm Trusted Publishing (OIDC) — no token, no manual
+approve. Configure Trusted Publisher with **`npm publish`** allowed for
+`publish-deck.yml`. See [cli/README.md](cli/README.md#release).
 
 ## Verification
 
