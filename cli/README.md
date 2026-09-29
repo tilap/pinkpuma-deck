@@ -22,10 +22,16 @@ deck --help
 | `remove owner/repo@plugin`                         | Drop the request and delete installed files (`--keep-files` to leave the copies) |
 | `sync`                                             | Re-download every requested plugin, refresh copies, and rewrite the lock         |
 | `list`                                             | Show requested plugins and, when synced, the resolved commit                     |
+| `scaffold <name> --owner <name> [--dir <parent>]`  | Create a new marketplace repo under `<dir>/<name>` (default dir: cwd)            |
 
-`--project <dir>` (or `-C`) scopes all commands to that project root (default: cwd).
+`--project <dir>` (or `-C`) scopes consumer commands (`init` / `add` / `remove` / `sync` /
+`list`) to that project root (default: cwd).
 `--no-agents-md` / `--agents-md` on `add`, `remove`, and `sync` set `writeAgentsMd` in
 the lock (default `true`).
+
+`scaffold` is author-side: it writes `.claude-plugin/marketplace.json`, empty `plugins/`,
+`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. `--owner` is required and becomes
+`owner.name` in the marketplace manifest.
 
 ## What gets copied
 
@@ -78,12 +84,18 @@ The request, committed with the project:
 
 ## plugins.lock.json
 
-The resolved install, also committed. `resolved` is the commit SHA `ref` pointed at
-when sync ran. `paths` and `mcpKeys` are everything that sync wrote for that plugin.
-`agentsSnippets` holds each skill's `DEFAULT_USAGE.md` body for the `AGENTS.md` block.
-`writeAgentsMd` (default `true`) controls whether sync writes that block. Set it to
-`false`, or pass `--no-agents-md`, to leave `AGENTS.md` alone and strip a previous
-marked block.
+The resolved install, local to the machine. `resolved` is the commit SHA `ref`
+pointed at when sync ran. `paths` and `mcpKeys` are everything that sync wrote for
+that plugin. `agentsSnippets` holds each skill's `DEFAULT_USAGE.md` body for the
+`AGENTS.md` block. `writeAgentsMd` (default `true`) controls whether sync writes that
+block. Set it to `false`, or pass `--no-agents-md`, to leave `AGENTS.md` alone and
+strip a previous marked block.
+
+When the project already has a `.gitignore`, writing the lock appends
+`.agent/plugins.lock.json` to it (deck does not create `.gitignore`). Commit
+`.agent/plugins.json`. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
+plugin asset directories, and generated MCP keys — or commit those copies for offline
+clones.
 
 ```json
 {
@@ -111,9 +123,7 @@ marked block.
 `lockfileVersion` is the **format** version of this file (not a plugin semver). The CLI
 refuses unknown versions.
 
-Commit both files. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
-plugin asset directories, and generated MCP keys — or commit those copies for offline
-clones. Cache clones live under `~/.cache/pinkpuma-deck/` (override with `DECK_CACHE`).
+Cache clones live under `~/.cache/pinkpuma-deck/` (override with `DECK_CACHE`).
 
 To install from a local checkout instead of GitHub, set `DECK_LOCAL_<owner>__<repo>`
 to that checkout. The current branch name and `HEAD` use the working tree, including

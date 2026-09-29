@@ -15,12 +15,15 @@ Every plugin ships as a single source shared by both tools — see [HOWTO.md](HO
 ## CLI
 
 Consumer-side install/sync — npm package [`@pinkpuma/deck`](cli/README.md).
-`.agent/plugins.json` is what you ask for. `.agent/plugins.lock.json` is the resolved commit and the paths sync wrote. Commit both.
+`.agent/plugins.json` is what you ask for. `.agent/plugins.lock.json` is the resolved commit and the paths sync wrote. Commit `plugins.json`; the lock is local (deck appends it to `.gitignore` when one already exists).
 
 ```bash
 npx @pinkpuma/deck init
 npx @pinkpuma/deck add owner/marketplace-repo@plugin-name --ref v0.1.0
 npx @pinkpuma/deck sync
+
+# author a new marketplace repo
+npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
 ```
 
 ## Install (agent plugins)
