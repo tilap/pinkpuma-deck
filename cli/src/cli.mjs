@@ -9,7 +9,13 @@ import {
   removeEntry,
   writeLockfile,
 } from "./lockfile.mjs";
-import { applyAll, applyEntry, uninstallEntry } from "./apply.mjs";
+import {
+  applyAll,
+  applyEntry,
+  dropVendorManifest,
+  pruneStaleEntries,
+  uninstallEntry,
+} from "./apply.mjs";
 import { LOCK_FILE } from "./paths.mjs";
 
 function usage() {
@@ -23,7 +29,9 @@ Usage:
   deck list [--project <dir>]
 
 Lockfile: ${LOCK_FILE}
-Copies skills/agents into .claude/ and .cursor/; merges MCP into .mcp.json and .cursor/mcp.json.
+Copies skills/agents into .claude/ and .cursor/, plus per-plugin support files
+under .claude/plugins and .cursor/plugins. Merges MCP into .mcp.json and .cursor/mcp.json.
+Existing skill directories and agent files are left in place.
 `;
 }
 
@@ -52,10 +60,14 @@ function parseArgs(argv) {
 
 function printResults(results) {
   for (const r of results) {
+    const skipped = r.skipped?.length ? ` skipped=${r.skipped.length}` : "";
     console.log(
-      `  ${r.id}: skills=${r.skills} agents=${r.agents} mcp=${r.mcp}` +
+      `  ${r.id}: skills=${r.skills} agents=${r.agents} mcp=${r.mcp}${skipped}` +
         (r.pluginVersion ? ` (plugin v${r.pluginVersion})` : ""),
     );
+    for (const rel of r.skipped || []) {
+      console.warn(`  left existing ${rel}`);
+    }
   }
 }
 
@@ -81,15 +93,18 @@ async function main() {
       const { marketplace, name } = parsePluginSpec(spec);
       let lock = ensureLockfile(root);
       lock = addEntry(lock, { marketplace, name, ref: args.ref });
-      writeLockfile(root, lock);
-      console.log(`Locked ${entryId({ marketplace, name })} @ ${args.ref}`);
+      const entry = lock.plugins.find(
+        (p) => p.marketplace === marketplace && p.name === name,
+      );
       if (args.sync) {
-        const entry = lock.plugins.find(
-          (p) => p.marketplace === marketplace && p.name === name,
-        );
         const result = applyEntry(root, entry);
+        writeLockfile(root, lock);
+        console.log(`Locked ${entryId(entry)} @ ${args.ref}`);
         console.log("Applied:");
         printResults([result]);
+      } else {
+        writeLockfile(root, lock);
+        console.log(`Locked ${entryId(entry)} @ ${args.ref}`);
       }
       break;
     }
@@ -104,7 +119,9 @@ async function main() {
       );
       const next = removeEntry(lock, spec);
       writeLockfile(root, next);
-      if (entry && !args.keepFiles) {
+      if (entry && args.keepFiles) {
+        dropVendorManifest(root, entry);
+      } else if (entry) {
         uninstallEntry(root, entry);
       }
       console.log(`Removed ${entryId({ marketplace, name })} from lock`);
@@ -115,6 +132,7 @@ async function main() {
       const lock = readLockfile(root);
       if (!lock) throw new Error(`No ${LOCK_FILE} — run init or add first`);
       if (lock.plugins.length === 0) {
+        pruneStaleEntries(root, lock);
         console.log("Lockfile empty — nothing to sync");
         break;
       }
