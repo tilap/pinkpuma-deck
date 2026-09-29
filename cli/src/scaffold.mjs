@@ -48,7 +48,9 @@ export function scaffoldMarketplace({ name, owner, parentDir }) {
 function copyTemplateTree(from, to, vars) {
   for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
     const src = path.join(from, entry.name);
-    const dest = path.join(to, entry.name);
+    // npm omits .gitignore from published packages — ship as "gitignore", write as ".gitignore"
+    const outName = entry.name === "gitignore" ? ".gitignore" : entry.name;
+    const dest = path.join(to, outName);
     if (entry.isDirectory()) {
       fs.mkdirSync(dest, { recursive: true });
       copyTemplateTree(src, dest, vars);
