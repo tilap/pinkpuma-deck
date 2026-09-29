@@ -7,9 +7,10 @@ on:
 
 permissions:
   contents: read
+  id-token: write # OIDC for npm trusted publishing
 
 jobs:
-  publish:
+  stage:
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -32,8 +33,11 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "22.14"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Ensure recent npm CLI
+        run: npm install -g npm@latest
 
       - name: Check version matches tag
         run: |
@@ -48,7 +52,7 @@ jobs:
       - name: Test
         run: npm test
 
-      - name: Publish
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Stages the tarball; a maintainer must approve with 2FA (npm stage approve).
+      # Requires a Trusted Publisher on npmjs.com for this workflow (see HOWTO / cli README).
+      - name: Stage on npm
+        run: npm stage publish --access public

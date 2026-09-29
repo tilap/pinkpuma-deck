@@ -69,5 +69,27 @@ No tokens are stored by this CLI.
 
 ## Release
 
-Push an annotated tag `deck-vX.Y.Z` on `main` (version must match `cli/package.json`).
-GitHub Actions publishes `@pinkpuma/deck` to npm.
+1. Configure **Trusted Publisher** on npm for `@pinkpuma/deck` (Package → Settings →
+   Trusted Publisher):
+   - Organization/user: `tilap`
+   - Repository: `pinkpuma-deck`
+   - Workflow filename: `publish-deck.yml`
+   - Allowed actions: **`npm stage publish` only** (not direct `npm publish`)
+2. No `NPM_TOKEN` needed for CI (OIDC). You can remove the secret if you added one.
+3. Bump `cli/package.json` `version`, push to `main`, tag `deck-vX.Y.Z`.
+4. GitHub Actions runs `npm stage publish`.
+5. Approve locally with 2FA:
+
+```bash
+npm stage list
+npm stage approve @pinkpuma/deck@X.Y.Z
+```
+
+**First-time note:** the package must exist on npm before Trusted Publisher can be
+attached. Create it once interactively if needed:
+
+```bash
+cd cli && npm publish --access public   # prompts for OTP
+```
+
+Then configure Trusted Publisher and use tags for later versions.

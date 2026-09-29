@@ -4,7 +4,7 @@
   "description": "Install and sync Claude Code / Cursor marketplace plugins into a project via a lockfile.",
   "type": "module",
   "engines": {
-    "node": ">=20"
+    "node": ">=22.14"
   },
   "bin": {
     "deck": "./src/cli.mjs"
@@ -22,7 +22,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/tilap/pinkpuma-deck.git",
+    "url": "git+https://github.com/tilap/pinkpuma-deck.git",
     "directory": "cli"
   },
   "keywords": [
