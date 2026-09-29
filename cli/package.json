@@ -1,0 +1,37 @@
+{
+  "name": "@pinkpuma/deck",
+  "version": "0.1.0",
+  "description": "Install and sync Claude Code / Cursor marketplace plugins into a project via a lockfile.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "deck": "./src/cli.mjs"
+  },
+  "files": [
+    "src/**/*.mjs",
+    "README.md"
+  ],
+  "scripts": {
+    "test": "node --test src/*.test.mjs",
+    "deck": "node src/cli.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/tilap/pinkpuma-deck.git",
+    "directory": "cli"
+  },
+  "keywords": [
+    "claude-code",
+    "cursor",
+    "plugins",
+    "skills",
+    "marketplace",
+    "deck"
+  ],
+  "license": "MIT"
+}
