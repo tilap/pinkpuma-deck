@@ -2,7 +2,23 @@ import fs from "node:fs";
 import path from "node:path";
 import { fetchMarketplace, resolvePluginDir } from "./github.mjs";
 import { entryId } from "./lockfile.mjs";
-import { HOSTS, VENDOR_MANIFEST_DIR, vendorManifestPath } from "./paths.mjs";
+import {
+  HOSTS,
+  VENDOR_MANIFEST_DIR,
+  pluginAssetRel,
+  vendorManifestPath,
+} from "./paths.mjs";
+
+const ASSET_SKIP = new Set([
+  "skills",
+  "agents",
+  ".claude-plugin",
+  ".cursor-plugin",
+  "mcp.json",
+]);
+
+/** Relative paths that can point at plugin files outside a skill directory. */
+const RELATIVE_PATH = /(?:\.\.?\/)+(?:[\w.@+-]+\/)*[\w.@+-]+/g;
 
 function copyDir(src, dest) {
   fs.mkdirSync(dest, { recursive: true });
@@ -27,6 +43,22 @@ function listAgentFiles(pluginDir) {
   return fs
     .readdirSync(agentsRoot)
     .filter((f) => f.endsWith(".md"));
+}
+
+function isInside(parent, candidate) {
+  const rel = path.relative(parent, candidate);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+function walkFiles(dir) {
+  const files = [];
+  if (!fs.existsSync(dir)) return files;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const abs = path.join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...walkFiles(abs));
+    else files.push(abs);
+  }
+  return files;
 }
 
 function readPluginMcp(pluginDir) {
@@ -78,6 +110,49 @@ function mcpNamespace(entry, serverName) {
   return `deck__${entry.marketplace.replace("/", "_")}__${entry.name}__${serverName}`;
 }
 
+function copyPluginAssets(pluginDir, destDir) {
+  const names = fs.readdirSync(pluginDir).filter((name) => {
+    if (name.startsWith(".")) return false;
+    return !ASSET_SKIP.has(name);
+  });
+  if (names.length === 0) return false;
+  fs.mkdirSync(destDir, { recursive: true });
+  for (const name of names) {
+    fs.cpSync(path.join(pluginDir, name), path.join(destDir, name), { recursive: true });
+  }
+  return true;
+}
+
+/**
+ * Point skill-relative links at the per-plugin asset directory so two plugins
+ * can both ship a CONVENTIONS.md without sharing one path.
+ */
+function rewriteSkillLinks(pluginDir, skillName, destSkillDir, assetDir) {
+  const sourceSkillDir = path.join(pluginDir, "skills", skillName);
+  for (const file of walkFiles(destSkillDir)) {
+    if (!file.endsWith(".md")) continue;
+    const relInSkill = path.relative(destSkillDir, file);
+    const sourceFile = path.join(sourceSkillDir, relInSkill);
+    let text = fs.readFileSync(file, "utf8");
+    const tokens = [...new Set(text.match(RELATIVE_PATH) || [])];
+    const replacements = [];
+    for (const token of tokens) {
+      const resolved = path.resolve(path.dirname(sourceFile), token);
+      if (!isInside(pluginDir, resolved) || isInside(sourceSkillDir, resolved)) continue;
+      if (!fs.existsSync(resolved) || !fs.statSync(resolved).isFile()) continue;
+      const vendored = path.join(assetDir, path.relative(pluginDir, resolved));
+      if (!fs.existsSync(vendored)) continue;
+      const rewritten = path.relative(path.dirname(file), vendored);
+      if (rewritten !== token) replacements.push([token, rewritten]);
+    }
+    replacements.sort((a, b) => b[0].length - a[0].length);
+    for (const [from, to] of replacements) {
+      text = text.split(from).join(to);
+    }
+    fs.writeFileSync(file, text);
+  }
+}
+
 /**
  * Remove previously vendored files for this entry (from manifest).
  */
@@ -116,8 +191,38 @@ export function uninstallEntry(projectRoot, entry) {
   return { removed };
 }
 
+/** Drop the vendor manifest and leave copied files in place. */
+export function dropVendorManifest(projectRoot, entry) {
+  fs.rmSync(vendorManifestPath(projectRoot, entryId(entry)), { force: true });
+}
+
+/**
+ * Uninstall vendor manifests whose plugin is no longer in the lock.
+ */
+export function pruneStaleEntries(projectRoot, lock) {
+  const dir = path.join(projectRoot, VENDOR_MANIFEST_DIR);
+  if (!fs.existsSync(dir)) return [];
+  const wanted = new Set((lock.plugins || []).map((plugin) => entryId(plugin)));
+  const removed = [];
+  for (const name of fs.readdirSync(dir)) {
+    if (!name.endsWith(".json")) continue;
+    const abs = path.join(dir, name);
+    const manifest = JSON.parse(fs.readFileSync(abs, "utf8"));
+    if (!manifest?.id || wanted.has(manifest.id)) continue;
+    if (!manifest.marketplace || !manifest.name) continue;
+    uninstallEntry(projectRoot, {
+      marketplace: manifest.marketplace,
+      name: manifest.name,
+    });
+    removed.push(manifest.id);
+  }
+  return removed;
+}
+
 /**
  * Copy one plugin directory into Claude + Cursor project paths.
+ * Existing skill directories and agent files are left untouched and are not
+ * recorded, so a later remove cannot delete them.
  */
 export function installFromPluginDir(projectRoot, entry, pluginDir) {
   uninstallEntry(projectRoot, entry);
@@ -131,6 +236,8 @@ export function installFromPluginDir(projectRoot, entry, pluginDir) {
     paths: [],
     mcpKeys: {},
   };
+  const skipped = [];
+  const assetDirs = {};
 
   for (const manifestRel of [
     ".claude-plugin/plugin.json",
@@ -146,13 +253,27 @@ export function installFromPluginDir(projectRoot, entry, pluginDir) {
     }
   }
 
+  for (const host of Object.values(HOSTS)) {
+    const assetRel = pluginAssetRel(host, installed.id);
+    const assetDir = path.join(projectRoot, assetRel);
+    if (copyPluginAssets(pluginDir, assetDir)) {
+      installed.paths.push(assetRel);
+    }
+    assetDirs[host.skills] = assetDir;
+  }
+
   const skills = listSkillDirs(pluginDir);
   for (const skill of skills) {
     const src = path.join(pluginDir, "skills", skill);
     for (const host of Object.values(HOSTS)) {
       const rel = path.join(host.skills, skill);
       const dest = path.join(projectRoot, rel);
+      if (fs.existsSync(dest)) {
+        skipped.push(rel);
+        continue;
+      }
       copyDir(src, dest);
+      rewriteSkillLinks(pluginDir, skill, dest, assetDirs[host.skills]);
       installed.paths.push(rel);
     }
   }
@@ -163,6 +284,10 @@ export function installFromPluginDir(projectRoot, entry, pluginDir) {
     for (const host of Object.values(HOSTS)) {
       const rel = path.join(host.agents, agentFile);
       const dest = path.join(projectRoot, rel);
+      if (fs.existsSync(dest)) {
+        skipped.push(rel);
+        continue;
+      }
       fs.mkdirSync(path.dirname(dest), { recursive: true });
       fs.copyFileSync(src, dest);
       installed.paths.push(rel);
@@ -199,6 +324,7 @@ export function installFromPluginDir(projectRoot, entry, pluginDir) {
     agents: agents.length,
     mcp: mcpServers ? Object.keys(mcpServers).length : 0,
     pluginVersion: installed.pluginVersion,
+    skipped,
   };
 }
 
@@ -213,6 +339,7 @@ export function applyEntry(projectRoot, entry) {
 }
 
 export function applyAll(projectRoot, lock) {
+  pruneStaleEntries(projectRoot, lock);
   const results = [];
   for (const entry of lock.plugins) {
     results.push(applyEntry(projectRoot, entry));

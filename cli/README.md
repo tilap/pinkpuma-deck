@@ -15,13 +15,13 @@ deck --help
 
 ## Commands
 
-| Command | Effect |
-| --- | --- |
-| `init` | Create an empty `.agent/plugins.lock.json` |
-| `add owner/repo@plugin [--ref <tag\|branch\|sha>]` | Lock the plugin and sync (use `--no-sync` to skip copy) |
-| `remove owner/repo@plugin` | Drop from lock and delete vendored files (`--keep-files` to leave copies) |
-| `sync` | Re-download every locked plugin and refresh copies |
-| `list` | Show lock entries |
+| Command                                            | Effect                                                                    |
+| -------------------------------------------------- | ------------------------------------------------------------------------- |
+| `init`                                             | Create an empty `.agent/plugins.lock.json`                                |
+| `add owner/repo@plugin [--ref <tag\|branch\|sha>]` | Lock the plugin and sync (use `--no-sync` to skip copy)                   |
+| `remove owner/repo@plugin`                         | Drop from lock and delete vendored files (`--keep-files` to leave copies) |
+| `sync`                                             | Re-download every locked plugin and refresh copies                        |
+| `list`                                             | Show lock entries                                                         |
 
 `--project <dir>` (or `-C`) scopes all commands to that project root (default: cwd).
 
@@ -30,11 +30,22 @@ deck --help
 For each locked plugin, the CLI clones the GitHub marketplace at `ref`, resolves
 `plugins/<name>/` (via `.claude-plugin/marketplace.json` when present), then vendors:
 
-| Component | Claude Code | Cursor |
-| --- | --- | --- |
-| Skills (`skills/*/SKILL.md`) | `.claude/skills/<name>/` | `.cursor/skills/<name>/` |
-| Agents (`agents/*.md`) | `.claude/agents/` | `.cursor/agents/` |
-| MCP (`mcp.json` / `.mcp.json` / manifest `mcpServers`) | `.mcp.json` | `.cursor/mcp.json` |
+| Component                                                                       | Claude Code              | Cursor                   |
+| ------------------------------------------------------------------------------- | ------------------------ | ------------------------ |
+| Skills (`skills/*/SKILL.md`)                                                    | `.claude/skills/<name>/` | `.cursor/skills/<name>/` |
+| Agents (`agents/*.md`)                                                          | `.claude/agents/`        | `.cursor/agents/`        |
+| Other plugin files (`CONVENTIONS.md`, `scripts/`, `templates/`, `README.md`, …) | `.claude/plugins/<id>/`  | `.cursor/plugins/<id>/`  |
+| MCP (`mcp.json` / `.mcp.json` / manifest `mcpServers`)                          | `.mcp.json`              | `.cursor/mcp.json`       |
+
+Relative links in an installed skill that point at those other plugin files are rewritten
+to the per-plugin directory, so two plugins can both ship a `CONVENTIONS.md`.
+
+An existing skill directory or agent file is left in place and is not recorded in the
+vendor manifest, so `remove` does not delete it.
+
+`add` writes the lock only after the copy succeeds. `--no-sync` writes the lock without
+copying. `sync` deletes vendored plugins that are no longer in the lock. `remove
+--keep-files` drops the lock entry and the vendor manifest, and leaves the copied files.
 
 MCP server keys are namespaced (`deck__owner_repo__plugin__server`) so sync does not
 clobber unrelated servers. A per-plugin manifest under `.agent/vendor/` tracks what was
@@ -58,9 +69,19 @@ installed so `remove` / re-`sync` can replace cleanly.
 `lockfileVersion` is the **format** version of this file (not a plugin semver). The CLI
 refuses unknown versions so an old binary cannot silently mis-apply a newer schema.
 
-Commit the lockfile. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents, and
-generated MCP keys — or commit the vendored copies for offline clones. Cache clones live
-under `~/.cache/pinkpuma-deck/` (override with `DECK_CACHE`).
+Commit the lockfile. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
+plugin asset directories, and generated MCP keys — or commit the vendored copies for
+offline clones. Cache clones live under `~/.cache/pinkpuma-deck/` (override with
+`DECK_CACHE`).
+
+To install from a local checkout instead of GitHub, set `DECK_LOCAL_<owner>__<repo>`
+to that checkout. The current branch name and `HEAD` use the working tree, including
+uncommitted files. Any other ref is checked out from a local clone.
+
+```bash
+DECK_LOCAL_tilap__pinkpuma-toolbelt=/path/to/pinkpuma-toolbelt \
+  deck add tilap/pinkpuma-toolbelt@git-workflow
+```
 
 ## Auth
 

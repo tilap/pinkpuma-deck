@@ -22,13 +22,55 @@ function cacheRoot() {
 }
 
 /**
+ * Optional local checkout for a marketplace. `DECK_LOCAL_owner__repo` is an absolute
+ * path. The current branch name and `HEAD` read that working tree, including
+ * uncommitted files. Any other ref is checked out from a local clone of it.
+ */
+function localSource(marketplace) {
+  const key = `DECK_LOCAL_${marketplace.replaceAll("/", "__")}`;
+  const value = process.env[key];
+  if (!value) return null;
+  if (!fs.existsSync(path.join(value, ".git"))) {
+    throw new Error(
+      `${key} does not point at a git checkout: ${value}`,
+    );
+  }
+  return value;
+}
+
+function fetchLocalMarketplace(source, marketplace, ref) {
+  const dest = path.join(cacheRoot(), marketplace, ref.replace(/[^\w.-]+/g, "_"));
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const branch = run("git", ["-C", source, "rev-parse", "--abbrev-ref", "HEAD"]).trim();
+  const useWorktree = ref === "HEAD" || ref === branch;
+  fs.rmSync(dest, { recursive: true, force: true });
+  if (useWorktree) {
+    fs.cpSync(source, dest, {
+      recursive: true,
+      filter(src) {
+        const rel = path.relative(source, src);
+        return rel === "" || (rel !== ".git" && !rel.startsWith(`.git${path.sep}`));
+      },
+    });
+    return dest;
+  }
+  run("git", ["clone", "--local", source, dest]);
+  run("git", ["-C", dest, "checkout", "--force", ref]);
+  return dest;
+}
+
+/**
  * Fetch owner/repo at ref into a local cache dir. Returns absolute path.
- * Uses git credentials already configured on the machine.
+ * Uses git credentials already configured on the machine, unless a DECK_LOCAL_*
+ * checkout is set for this marketplace.
  */
 export function fetchMarketplace(marketplace, ref) {
   if (!/^[\w.-]+\/[\w.-]+$/.test(marketplace)) {
     throw new Error(`Invalid marketplace "${marketplace}" (expected owner/repo)`);
   }
+  const local = localSource(marketplace);
+  if (local) return fetchLocalMarketplace(local, marketplace, ref);
+
   const dest = path.join(cacheRoot(), marketplace, ref.replace(/[^\w.-]+/g, "_"));
   const url = `https://github.com/${marketplace}.git`;
 
