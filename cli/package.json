@@ -1,6 +1,6 @@
 {
   "name": "@pinkpuma/deck",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Install and sync Claude Code / Cursor marketplace plugins into a project via a lockfile.",
   "type": "module",
   "engines": {

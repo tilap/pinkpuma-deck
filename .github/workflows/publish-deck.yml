@@ -33,11 +33,8 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.14"
+          node-version: "24"
           registry-url: "https://registry.npmjs.org"
-
-      - name: Ensure recent npm CLI
-        run: npm install -g npm@latest
 
       - name: Check version matches tag
         run: |
@@ -48,12 +45,13 @@ jobs:
             echo "Tag deck-v${TAG} does not match package.json version ${PKG}"
             exit 1
           fi
+          node -v
+          npm -v
 
       - name: Test
         run: npm test
 
       # Fully automated publish via npm Trusted Publishing (OIDC).
-      # On npmjs.com → package → Trusted Publisher: allow "npm publish"
-      # for workflow publish-deck.yml (tilap/pinkpuma-deck). No NPM_TOKEN.
+      # Trusted Publisher must allow "npm publish" for publish-deck.yml.
       - name: Publish
         run: npm publish --access public --provenance
