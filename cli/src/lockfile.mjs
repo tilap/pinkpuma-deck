@@ -1,12 +1,12 @@
 import fs from "node:fs";
 import path from "node:path";
-import { LOCK_DIR, LOCK_FILE, lockPath } from "./paths.mjs";
+import { AGENT_DIR, LOCK_FILE, lockPath } from "./paths.mjs";
 
 /** Supported lockfile format version. Bump when the schema is not backward-compatible. */
-export const LOCKFILE_FORMAT = 1;
+export const LOCKFILE_FORMAT = 2;
 
 /**
- * @typedef {{ marketplace: string, name: string, ref: string }} LockEntry
+ * @typedef {{ marketplace: string, name: string, ref: string, resolved: string, paths: string[], mcpKeys: Record<string, string[]> }} LockEntry
  * @typedef {{ lockfileVersion: number, plugins: LockEntry[] }} Lockfile
  */
 
@@ -36,6 +36,32 @@ export function parsePluginSpec(spec) {
   );
 }
 
+function normalizeEntry(plugin, index) {
+  if (!plugin || typeof plugin !== "object") {
+    throw new Error(`${LOCK_FILE} plugins[${index}] is not an object`);
+  }
+  const { marketplace, name, ref, resolved, paths, mcpKeys } = plugin;
+  if (!marketplace || !name || !ref || !resolved) {
+    throw new Error(
+      `${LOCK_FILE} plugins[${index}] requires marketplace, name, ref, and resolved`,
+    );
+  }
+  if (!Array.isArray(paths)) {
+    throw new Error(`${LOCK_FILE} plugins[${index}].paths must be an array`);
+  }
+  if (!mcpKeys || typeof mcpKeys !== "object" || Array.isArray(mcpKeys)) {
+    throw new Error(`${LOCK_FILE} plugins[${index}].mcpKeys must be an object`);
+  }
+  return {
+    marketplace,
+    name,
+    ref,
+    resolved,
+    paths: [...paths],
+    mcpKeys,
+  };
+}
+
 /**
  * Normalize and validate a parsed lockfile object.
  */
@@ -50,12 +76,12 @@ export function normalizeLockfile(raw) {
   }
   if (raw.lockfileVersion !== LOCKFILE_FORMAT) {
     throw new Error(
-      `${LOCK_FILE} has lockfileVersion ${raw.lockfileVersion}; this CLI supports ${LOCKFILE_FORMAT} only. Upgrade @pinkpuma/deck or migrate the lockfile.`,
+      `${LOCK_FILE} has lockfileVersion ${raw.lockfileVersion}; this CLI supports ${LOCKFILE_FORMAT} only`,
     );
   }
   return {
     lockfileVersion: LOCKFILE_FORMAT,
-    plugins: raw.plugins,
+    plugins: raw.plugins.map(normalizeEntry),
   };
 }
 
@@ -69,42 +95,30 @@ export function readLockfile(projectRoot) {
 }
 
 export function writeLockfile(projectRoot, lock) {
-  const dir = path.join(projectRoot, LOCK_DIR);
+  const dir = path.join(projectRoot, AGENT_DIR);
   fs.mkdirSync(dir, { recursive: true });
   const file = lockPath(projectRoot);
   const normalized = normalizeLockfile({
-    lockfileVersion: lock.lockfileVersion ?? LOCKFILE_FORMAT,
+    lockfileVersion: LOCKFILE_FORMAT,
     plugins: lock.plugins,
   });
-  const out = `${JSON.stringify(normalized, null, 2)}\n`;
-  fs.writeFileSync(file, out, "utf8");
+  normalized.plugins.sort((a, b) => entryId(a).localeCompare(entryId(b)));
+  fs.writeFileSync(file, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return file;
 }
 
-export function ensureLockfile(projectRoot) {
-  const existing = readLockfile(projectRoot);
-  if (existing) return existing;
-  const lock = emptyLockfile();
-  writeLockfile(projectRoot, lock);
-  return lock;
+export function upsertLockEntry(lock, record) {
+  const id = entryId(record);
+  const plugins = lock.plugins.filter((plugin) => entryId(plugin) !== id);
+  plugins.push(record);
+  return { ...lock, plugins };
 }
 
-export function addEntry(lock, { marketplace, name, ref }) {
-  const id = entryId({ marketplace, name });
-  const next = lock.plugins.filter(
-    (p) => entryId(p) !== id,
-  );
-  next.push({ marketplace, name, ref: ref || "main" });
-  next.sort((a, b) => entryId(a).localeCompare(entryId(b)));
-  return { ...lock, plugins: next };
-}
-
-export function removeEntry(lock, spec) {
+export function removeLockEntry(lock, spec) {
   const { marketplace, name } = parsePluginSpec(spec);
   const id = entryId({ marketplace, name });
-  const plugins = lock.plugins.filter((p) => entryId(p) !== id);
-  if (plugins.length === lock.plugins.length) {
-    throw new Error(`No lock entry for ${id}`);
-  }
-  return { ...lock, plugins };
+  return {
+    ...lock,
+    plugins: lock.plugins.filter((plugin) => entryId(plugin) !== id),
+  };
 }

@@ -8,13 +8,14 @@ Every plugin ships as a single source shared by both tools — see [HOWTO.md](HO
 
 ## Plugins
 
-| Plugin | Purpose |
-| --- | --- |
+| Plugin                                                     | Purpose                                                      |
+| ---------------------------------------------------------- | ------------------------------------------------------------ |
 | [plugins-pack-maintainer](plugins/plugins-pack-maintainer) | Version, changelog, and tag releases for marketplace plugins |
 
 ## CLI
 
-Consumer-side install/sync via lockfile — npm package [`@pinkpuma/deck`](cli/README.md):
+Consumer-side install/sync — npm package [`@pinkpuma/deck`](cli/README.md).
+`.agent/plugins.json` is what you ask for. `.agent/plugins.lock.json` is the resolved commit and the paths sync wrote. Commit both.
 
 ```bash
 npx @pinkpuma/deck init

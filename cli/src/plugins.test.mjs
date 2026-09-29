@@ -1,0 +1,46 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import {
+  addPlugin,
+  emptyPlugins,
+  readPlugins,
+  removePlugin,
+  writePlugins,
+} from "./plugins.mjs";
+
+test("add and remove requested plugins", () => {
+  let doc = emptyPlugins();
+  doc = addPlugin(doc, { marketplace: "acme/kit", name: "foo", ref: "v1.0.0" });
+  doc = addPlugin(doc, { marketplace: "acme/kit", name: "bar", ref: "main" });
+  doc = addPlugin(doc, { marketplace: "acme/kit", name: "foo", ref: "v2.0.0" });
+  assert.equal(doc.plugins.length, 2);
+  assert.equal(doc.plugins.find((plugin) => plugin.name === "foo").ref, "v2.0.0");
+  doc = removePlugin(doc, "acme/kit@bar");
+  assert.deepEqual(doc.plugins, [
+    { marketplace: "acme/kit", name: "foo", ref: "v2.0.0" },
+  ]);
+});
+
+test("write and read plugins.json without resolved fields", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-plugins-"));
+  writePlugins(dir, {
+    plugins: [
+      {
+        marketplace: "acme/kit",
+        name: "foo",
+        ref: "main",
+        resolved: "should-not-stick",
+        paths: [".claude/skills/foo"],
+      },
+    ],
+  });
+  const round = readPlugins(dir);
+  assert.deepEqual(round.plugins, [
+    { marketplace: "acme/kit", name: "foo", ref: "main" },
+  ]);
+  const raw = fs.readFileSync(path.join(dir, ".agent/plugins.json"), "utf8");
+  assert.equal(raw.includes("resolved"), false);
+});

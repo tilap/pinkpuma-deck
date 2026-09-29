@@ -1,22 +1,27 @@
 #!/usr/bin/env node
 import path from "node:path";
 import {
-  addEntry,
-  ensureLockfile,
+  applyAll,
+  applyEntry,
+  removeInstalledFiles,
+} from "./apply.mjs";
+import {
+  emptyLockfile,
   entryId,
   parsePluginSpec,
   readLockfile,
-  removeEntry,
+  removeLockEntry,
+  upsertLockEntry,
   writeLockfile,
 } from "./lockfile.mjs";
+import { LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
 import {
-  applyAll,
-  applyEntry,
-  dropVendorManifest,
-  pruneStaleEntries,
-  uninstallEntry,
-} from "./apply.mjs";
-import { LOCK_FILE } from "./paths.mjs";
+  addPlugin,
+  ensurePlugins,
+  readPlugins,
+  removePlugin,
+  writePlugins,
+} from "./plugins.mjs";
 
 function usage() {
   return `deck (@pinkpuma/deck) — sync marketplace plugins into a project
@@ -28,10 +33,11 @@ Usage:
   deck sync [--project <dir>]
   deck list [--project <dir>]
 
-Lockfile: ${LOCK_FILE}
+Request: ${PLUGINS_FILE}
+Lock:    ${LOCK_FILE}
 Copies skills/agents into .claude/ and .cursor/, plus per-plugin support files
 under .claude/plugins and .cursor/plugins. Merges MCP into .mcp.json and .cursor/mcp.json.
-Existing skill directories and agent files are left in place.
+Recorded paths are replaced on sync and deleted on remove.
 `;
 }
 
@@ -59,15 +65,12 @@ function parseArgs(argv) {
 }
 
 function printResults(results) {
-  for (const r of results) {
-    const skipped = r.skipped?.length ? ` skipped=${r.skipped.length}` : "";
+  for (const result of results) {
     console.log(
-      `  ${r.id}: skills=${r.skills} agents=${r.agents} mcp=${r.mcp}${skipped}` +
-        (r.pluginVersion ? ` (plugin v${r.pluginVersion})` : ""),
+      `  ${result.id}: skills=${result.skills} agents=${result.agents} mcp=${result.mcp}` +
+        (result.pluginVersion ? ` (plugin v${result.pluginVersion})` : "") +
+        (result.record?.resolved ? ` resolved=${result.record.resolved}` : ""),
     );
-    for (const rel of r.skipped || []) {
-      console.warn(`  left existing ${rel}`);
-    }
   }
 }
 
@@ -83,73 +86,80 @@ async function main() {
 
   switch (cmd) {
     case "init": {
-      const lock = ensureLockfile(root);
-      console.log(`Wrote ${LOCK_FILE} (${lock.plugins.length} plugins)`);
+      const doc = ensurePlugins(root);
+      console.log(`Wrote ${PLUGINS_FILE} (${doc.plugins.length} plugins)`);
       break;
     }
     case "add": {
       const spec = rest[0];
       if (!spec) throw new Error("add requires owner/repo@plugin");
       const { marketplace, name } = parsePluginSpec(spec);
-      let lock = ensureLockfile(root);
-      lock = addEntry(lock, { marketplace, name, ref: args.ref });
-      const entry = lock.plugins.find(
-        (p) => p.marketplace === marketplace && p.name === name,
+      const doc = addPlugin(ensurePlugins(root), {
+        marketplace,
+        name,
+        ref: args.ref,
+      });
+      writePlugins(root, doc);
+      const entry = doc.plugins.find(
+        (plugin) => plugin.marketplace === marketplace && plugin.name === name,
       );
-      if (args.sync) {
-        const result = applyEntry(root, entry);
-        writeLockfile(root, lock);
-        console.log(`Locked ${entryId(entry)} @ ${args.ref}`);
-        console.log("Applied:");
-        printResults([result]);
-      } else {
-        writeLockfile(root, lock);
-        console.log(`Locked ${entryId(entry)} @ ${args.ref}`);
+      if (!args.sync) {
+        console.log(`Added ${entryId(entry)} @ ${args.ref} to ${PLUGINS_FILE}`);
+        break;
       }
+      const lock = readLockfile(root) ?? emptyLockfile();
+      const result = applyEntry(root, entry, lock);
+      writeLockfile(root, upsertLockEntry(lock, result.record));
+      console.log(`Locked ${entryId(entry)} @ ${args.ref}`);
+      console.log("Applied:");
+      printResults([result]);
       break;
     }
     case "remove": {
       const spec = rest[0];
       if (!spec) throw new Error("remove requires owner/repo@plugin");
-      const lock = readLockfile(root);
-      if (!lock) throw new Error(`No ${LOCK_FILE} — run init first`);
+      const doc = readPlugins(root);
+      if (!doc) throw new Error(`No ${PLUGINS_FILE} — run init or add first`);
       const { marketplace, name } = parsePluginSpec(spec);
-      const entry = lock.plugins.find(
-        (p) => p.marketplace === marketplace && p.name === name,
+      const lock = readLockfile(root) ?? emptyLockfile();
+      const record = lock.plugins.find(
+        (plugin) => plugin.marketplace === marketplace && plugin.name === name,
       );
-      const next = removeEntry(lock, spec);
-      writeLockfile(root, next);
-      if (entry && args.keepFiles) {
-        dropVendorManifest(root, entry);
-      } else if (entry) {
-        uninstallEntry(root, entry);
-      }
-      console.log(`Removed ${entryId({ marketplace, name })} from lock`);
+      const nextDoc = removePlugin(doc, spec);
+      if (record && !args.keepFiles) removeInstalledFiles(root, record);
+      writePlugins(root, nextDoc);
+      writeLockfile(root, removeLockEntry(lock, spec));
+      console.log(`Removed ${entryId({ marketplace, name })}`);
       break;
     }
     case "sync":
     case "apply": {
-      const lock = readLockfile(root);
-      if (!lock) throw new Error(`No ${LOCK_FILE} — run init or add first`);
-      if (lock.plugins.length === 0) {
-        pruneStaleEntries(root, lock);
-        console.log("Lockfile empty — nothing to sync");
+      const doc = readPlugins(root);
+      if (!doc) throw new Error(`No ${PLUGINS_FILE} — run init or add first`);
+      if (doc.plugins.length === 0) {
+        const lock = readLockfile(root) ?? emptyLockfile();
+        applyAll(root, doc, lock);
+        console.log("No plugins requested — nothing to sync");
         break;
       }
-      console.log(`Syncing ${lock.plugins.length} plugin(s)…`);
-      const results = applyAll(root, lock);
+      console.log(`Syncing ${doc.plugins.length} plugin(s)…`);
+      const lock = readLockfile(root) ?? emptyLockfile();
+      const results = applyAll(root, doc, lock);
       console.log("Done:");
       printResults(results);
       break;
     }
     case "list": {
-      const lock = readLockfile(root);
-      if (!lock || lock.plugins.length === 0) {
-        console.log("(no plugins locked)");
+      const doc = readPlugins(root);
+      if (!doc || doc.plugins.length === 0) {
+        console.log("(no plugins)");
         break;
       }
-      for (const p of lock.plugins) {
-        console.log(`${entryId(p)}  ref=${p.ref}`);
+      const lock = readLockfile(root);
+      for (const plugin of doc.plugins) {
+        const record = lock?.plugins.find((item) => entryId(item) === entryId(plugin));
+        const resolved = record?.resolved ? `  resolved=${record.resolved}` : "";
+        console.log(`${entryId(plugin)}  ref=${plugin.ref}${resolved}`);
       }
       break;
     }
