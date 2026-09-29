@@ -23,6 +23,7 @@ import {
   removePlugin,
   writePlugins,
 } from "./plugins.mjs";
+import { scaffoldMarketplace } from "./scaffold.mjs";
 
 function usage() {
   return `deck (@pinkpuma/deck) — sync marketplace plugins into a project
@@ -33,6 +34,7 @@ Usage:
   deck remove <owner/repo@plugin> [--project <dir>] [--keep-files] [--no-agents-md|--agents-md]
   deck sync [--project <dir>] [--no-agents-md|--agents-md]
   deck list [--project <dir>]
+  deck scaffold <name> --owner <name> [--dir <parent>]
 
 Request: ${PLUGINS_FILE}
 Lock:    ${LOCK_FILE}
@@ -42,6 +44,7 @@ Recorded paths are replaced on sync and deleted on remove.
 When AGENTS.md exists and lock.writeAgentsMd is true (default), sync rewrites a marked
 Skills block from each skill's DEFAULT_USAGE.md. --no-agents-md sets writeAgentsMd to
 false in the lock and removes that block; --agents-md turns it back on.
+scaffold creates a new marketplace repo under <dir>/<name> (default dir: cwd).
 `;
 }
 
@@ -49,15 +52,21 @@ function parseArgs(argv) {
   const args = {
     _: [],
     project: process.cwd(),
+    dir: process.cwd(),
     sync: true,
     keepFiles: false,
     ref: "main",
+    owner: undefined,
     writeAgentsMd: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--project" || a === "-C") {
       args.project = path.resolve(argv[++i] || "");
+    } else if (a === "--dir") {
+      args.dir = path.resolve(argv[++i] || "");
+    } else if (a === "--owner") {
+      args.owner = argv[++i] ?? "";
     } else if (a === "--ref") {
       args.ref = argv[++i] || "main";
     } else if (a === "--no-sync") {
@@ -193,6 +202,20 @@ async function main() {
         const resolved = record?.resolved ? `  resolved=${record.resolved}` : "";
         console.log(`${entryId(plugin)}  ref=${plugin.ref}${resolved}`);
       }
+      break;
+    }
+    case "scaffold": {
+      const name = rest[0];
+      if (!name) throw new Error("scaffold requires <name>");
+      if (args.owner === undefined) {
+        throw new Error("scaffold requires --owner <name>");
+      }
+      const { root: created } = scaffoldMarketplace({
+        name,
+        owner: args.owner,
+        parentDir: args.dir,
+      });
+      console.log(`Created marketplace at ${created}`);
       break;
     }
     default:

@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { ensureLockGitignored } from "./gitignore.mjs";
 import { AGENT_DIR, LOCK_FILE, lockPath } from "./paths.mjs";
 
 /** Supported lockfile format version. Bump when the schema is not backward-compatible. */
@@ -125,6 +126,7 @@ export function writeLockfile(projectRoot, lock) {
   });
   normalized.plugins.sort((a, b) => entryId(a).localeCompare(entryId(b)));
   fs.writeFileSync(file, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  ensureLockGitignored(projectRoot);
   return file;
 }
 

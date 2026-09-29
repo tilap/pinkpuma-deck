@@ -96,9 +96,11 @@ Portable frontmatter only by default (`name`, `description`, `metadata`,
 side effects. Keep `SKILL.md` bodies under ~500 lines; shared rules go in
 `CONVENTIONS.md` at the plugin root.
 
-## CLI (consumer projects)
+## CLI
 
 The `cli/` package is published as [`@pinkpuma/deck`](cli/README.md).
+
+**Consumer projects** — install/sync plugins into an app:
 
 ```bash
 npx @pinkpuma/deck init --project /path/to/app
@@ -109,7 +111,18 @@ npx @pinkpuma/deck sync --project /path/to/app
 It copies skills and agents into both `.claude/` and `.cursor/`, and merges MCP servers
 into `.mcp.json` and `.cursor/mcp.json`. `.agent/plugins.json` lists what to install.
 `.agent/plugins.lock.json` records the resolved commit and the paths that sync wrote.
-Commit both.
+Commit `plugins.json`. When a `.gitignore` already exists, writing the lock appends
+`.agent/plugins.lock.json` to it.
+
+**Author a new marketplace** — empty repo layout (no plugins yet):
+
+```bash
+npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
+npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name" --dir /path/to/parent
+```
+
+Creates `<dir>/<name>/` with `.claude-plugin/marketplace.json`, empty `plugins/`,
+`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. See [cli/README.md](cli/README.md).
 
 When changing the CLI:
 
