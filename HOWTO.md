@@ -122,7 +122,17 @@ npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name" --dir /path/to/pa
 ```
 
 Creates `<dir>/<name>/` with `.claude-plugin/marketplace.json`, empty `plugins/`,
-`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. See [cli/README.md](cli/README.md).
+`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`.
+
+**Add a plugin** inside an existing marketplace:
+
+```bash
+npx @pinkpuma/deck scaffold plugin my-plugin \
+  --description "Short purpose for manifests and the README table."
+```
+
+`--dir` is the marketplace root (default: cwd). Registers `marketplace.json` and appends
+the README Plugins table when present. See [cli/README.md](cli/README.md).
 
 When changing the CLI:
 

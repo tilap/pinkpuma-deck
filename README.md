@@ -22,8 +22,9 @@ npx @pinkpuma/deck init
 npx @pinkpuma/deck add owner/marketplace-repo@plugin-name --ref v0.1.0
 npx @pinkpuma/deck sync
 
-# author a new marketplace repo
+# author a new marketplace repo, then add a plugin inside it
 npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
+npx @pinkpuma/deck scaffold plugin my-plugin --description "Short purpose." --dir my-marketplace
 ```
 
 ## Install (agent plugins)

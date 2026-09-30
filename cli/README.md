@@ -15,23 +15,27 @@ deck --help
 
 ## Commands
 
-| Command                                            | Effect                                                                           |
-| -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `init`                                             | Create an empty `.agent/plugins.json`                                            |
-| `add owner/repo@plugin [--ref <tag\|branch\|sha>]` | Add the request and sync (use `--no-sync` to record the request without copying) |
-| `remove owner/repo@plugin`                         | Drop the request and delete installed files (`--keep-files` to leave the copies) |
-| `sync`                                             | Re-download every requested plugin, refresh copies, and rewrite the lock         |
-| `list`                                             | Show requested plugins and, when synced, the resolved commit                     |
-| `scaffold <name> --owner <name> [--dir <parent>]`  | Create a new marketplace repo under `<dir>/<name>` (default dir: cwd)            |
+| Command                                                                  | Effect                                                                |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------- |
+| `init`                                                                   | Create an empty `.agent/plugins.json`                                 |
+| `add owner/repo@plugin [--ref <tag\|branch\|sha>]`                       | Add the request and sync (use `--no-sync` to record without copying)  |
+| `remove owner/repo@plugin`                                               | Drop the request and delete installed files (`--keep-files` to keep)  |
+| `sync`                                                                   | Re-download every requested plugin, refresh copies, and rewrite lock  |
+| `list`                                                                   | Show requested plugins and, when synced, the resolved commit          |
+| `scaffold <name> --owner <name> [--dir <parent>]`                        | Create a new marketplace repo under `<dir>/<name>` (default dir: cwd) |
+| `scaffold plugin <name> --description <text> [--owner <name>] [--dir …]` | Add a plugin inside an existing marketplace (`--dir` = marketplace)   |
 
 `--project <dir>` (or `-C`) scopes consumer commands (`init` / `add` / `remove` / `sync` /
 `list`) to that project root (default: cwd).
 `--no-agents-md` / `--agents-md` on `add`, `remove`, and `sync` set `writeAgentsMd` in
 the lock (default `true`).
 
-`scaffold` is author-side: it writes `.claude-plugin/marketplace.json`, empty `plugins/`,
-`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. `--owner` is required and becomes
-`owner.name` in the marketplace manifest.
+`scaffold` (marketplace) writes `.claude-plugin/marketplace.json`, empty `plugins/`,
+`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. `--owner` is required.
+
+`scaffold plugin` writes `plugins/<name>/` (dual manifests at `0.1.0`, starter skill +
+`DEFAULT_USAGE.md`, README), appends `marketplace.json`, and adds a README Plugins row
+when a table exists. `--owner` defaults to `owner.name` from the marketplace manifest.
 
 ## What gets copied
 

@@ -1,0 +1,1 @@
+- **{{NAME}}.** If the `{{NAME}}` skill is available, follow it when: {{DESCRIPTION}}

@@ -40,16 +40,22 @@ You publish **plugins**, not a single version of the marketplace.
 ## Create a plugin
 
 1. Branch: `feat/add-<name>-plugin`.
-2. Scaffold `plugins/<name>/` with `.claude-plugin/plugin.json`,
-   `.cursor-plugin/plugin.json`, a `skills/` directory, and `README.md`.
-   Keep `name`, `version`, `description`, and `author` identical in both manifests.
-3. Add an entry to `.claude-plugin/marketplace.json` with `source` pointing at
-   `./plugins/<name>`.
-4. Add a row to the root [README](README.md) Plugins table.
-5. `claude plugin validate --strict ./plugins/<name>` — zero warnings.
-6. Install from the local marketplace and exercise the skills.
-7. Commit. Cut the first release: bump both manifests, add `CHANGELOG.md`, validate again.
-8. Push. Create the annotated tag `<name>-v<semver>` when consumers should pin that release.
+2. From the marketplace root:
+
+   ```bash
+   npx @pinkpuma/deck scaffold plugin <name> --description "Short purpose."
+   ```
+
+   This writes `plugins/<name>/` (dual manifests, starter skill + `DEFAULT_USAGE.md`,
+   README), registers `.claude-plugin/marketplace.json`, and appends the root README
+   Plugins table when present. Keep `name`, `version`, `description`, and `author`
+   identical in both manifests afterward.
+3. Replace the stub `SKILL.md` body with real steps; tighten `DEFAULT_USAGE.md` so it
+   reads clearly in a consumer project's AGENTS.md.
+4. `claude plugin validate --strict ./plugins/<name>` — zero warnings.
+5. Install from the local marketplace and exercise the skills.
+6. Commit. Cut the first release: bump both manifests, add `CHANGELOG.md`, validate again.
+7. Push. Create the annotated tag `<name>-v<semver>` when consumers should pin that release.
 
 ## Change a plugin
 

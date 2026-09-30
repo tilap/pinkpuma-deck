@@ -23,7 +23,7 @@ import {
   removePlugin,
   writePlugins,
 } from "./plugins.mjs";
-import { scaffoldMarketplace } from "./scaffold.mjs";
+import { scaffoldMarketplace, scaffoldPlugin } from "./scaffold.mjs";
 
 function usage() {
   return `deck (@pinkpuma/deck) — sync marketplace plugins into a project
@@ -35,6 +35,7 @@ Usage:
   deck sync [--project <dir>] [--no-agents-md|--agents-md]
   deck list [--project <dir>]
   deck scaffold <name> --owner <name> [--dir <parent>]
+  deck scaffold plugin <name> --description <text> [--owner <name>] [--dir <marketplace>]
 
 Request: ${PLUGINS_FILE}
 Lock:    ${LOCK_FILE}
@@ -44,7 +45,8 @@ Recorded paths are replaced on sync and deleted on remove.
 When AGENTS.md exists and lock.writeAgentsMd is true (default), sync rewrites a marked
 Skills block from each skill's DEFAULT_USAGE.md. --no-agents-md sets writeAgentsMd to
 false in the lock and removes that block; --agents-md turns it back on.
-scaffold creates a new marketplace repo under <dir>/<name> (default dir: cwd).
+scaffold creates a new marketplace under <dir>/<name>, or a plugin inside an existing
+marketplace (registers marketplace.json + README Plugins row).
 `;
 }
 
@@ -57,6 +59,7 @@ function parseArgs(argv) {
     keepFiles: false,
     ref: "main",
     owner: undefined,
+    description: undefined,
     writeAgentsMd: undefined,
   };
   for (let i = 0; i < argv.length; i++) {
@@ -67,6 +70,8 @@ function parseArgs(argv) {
       args.dir = path.resolve(argv[++i] || "");
     } else if (a === "--owner") {
       args.owner = argv[++i] ?? "";
+    } else if (a === "--description") {
+      args.description = argv[++i] ?? "";
     } else if (a === "--ref") {
       args.ref = argv[++i] || "main";
     } else if (a === "--no-sync") {
@@ -205,8 +210,26 @@ async function main() {
       break;
     }
     case "scaffold": {
+      if (rest[0] === "plugin") {
+        const name = rest[1];
+        if (!name) throw new Error("scaffold plugin requires <name>");
+        if (args.description === undefined) {
+          throw new Error("scaffold plugin requires --description <text>");
+        }
+        const { root: created, warnings } = scaffoldPlugin({
+          name,
+          description: args.description,
+          owner: args.owner,
+          marketplaceDir: args.dir,
+        });
+        console.log(`Created plugin at ${created}`);
+        for (const warning of warnings) {
+          console.warn(`Warning: ${warning}`);
+        }
+        break;
+      }
       const name = rest[0];
-      if (!name) throw new Error("scaffold requires <name>");
+      if (!name) throw new Error("scaffold requires <name> (or: scaffold plugin <name>)");
       if (args.owner === undefined) {
         throw new Error("scaffold requires --owner <name>");
       }
