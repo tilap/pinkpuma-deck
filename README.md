@@ -15,7 +15,7 @@ Every plugin ships as a single source shared by both tools — see [HOWTO.md](HO
 ## CLI
 
 Consumer-side install/sync — npm package [`@pinkpuma/deck`](cli/README.md).
-`.agent/plugins.json` is what you ask for. `.agent/plugins.lock.json` is the resolved commit and the paths sync wrote. Commit `plugins.json`; the lock is local (deck appends it to `.gitignore` when one already exists).
+`ai-plugin.json` is what you ask for. `ai-plugin.lock.json` is the resolved commit and the paths sync wrote. Commit `ai-plugin.json`; the lock is local (deck appends it to `.gitignore` when one already exists).
 
 ```bash
 npx @pinkpuma/deck init

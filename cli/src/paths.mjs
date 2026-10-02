@@ -1,8 +1,7 @@
 /** Shared paths for @pinkpuma/deck. */
 
-export const AGENT_DIR = ".agent";
-export const PLUGINS_FILE = ".agent/plugins.json";
-export const LOCK_FILE = ".agent/plugins.lock.json";
+export const PLUGINS_FILE = "ai-plugin.json";
+export const LOCK_FILE = "ai-plugin.lock.json";
 
 /** Where plugin components are copied for each host. */
 export const HOSTS = {

@@ -1,7 +1,6 @@
 import fs from "node:fs";
-import path from "node:path";
 import { entryId, parsePluginSpec } from "./lockfile.mjs";
-import { AGENT_DIR, PLUGINS_FILE, pluginsPath } from "./paths.mjs";
+import { PLUGINS_FILE, pluginsPath } from "./paths.mjs";
 
 /**
  * Requested plugins. Same role as package.json dependencies: what to install,
@@ -41,7 +40,6 @@ export function readPlugins(projectRoot) {
 }
 
 export function writePlugins(projectRoot, doc) {
-  fs.mkdirSync(path.join(projectRoot, AGENT_DIR), { recursive: true });
   const normalized = normalizePlugins(doc);
   normalized.plugins.sort((a, b) => entryId(a).localeCompare(entryId(b)));
   fs.writeFileSync(
