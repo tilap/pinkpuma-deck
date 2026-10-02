@@ -1,7 +1,7 @@
 # @pinkpuma/deck
 
 Install and sync Claude Code / Cursor marketplace plugins into a consumer project.
-`.agent/plugins.json` is the request. `.agent/plugins.lock.json` is the resolved install.
+`ai-plugin.json` is the request. `ai-plugin.lock.json` is the resolved install.
 
 ```bash
 npm i -g @pinkpuma/deck
@@ -17,7 +17,7 @@ deck --help
 
 | Command                                            | Effect                                                                           |
 | -------------------------------------------------- | -------------------------------------------------------------------------------- |
-| `init`                                             | Create an empty `.agent/plugins.json`                                            |
+| `init`                                             | Create an empty `ai-plugin.json`                                                 |
 | `add owner/repo@plugin [--ref <tag\|branch\|sha>]` | Add the request and sync (use `--no-sync` to record the request without copying) |
 | `remove owner/repo@plugin`                         | Drop the request and delete installed files (`--keep-files` to leave the copies) |
 | `sync`                                             | Re-download every requested plugin, refresh copies, and rewrite the lock         |
@@ -57,14 +57,14 @@ exists and `writeAgentsMd` is true, rewrites a marked `## Skills` block from tho
 snippets. Deck never creates `AGENTS.md`. Pass `--no-agents-md` (or set
 `writeAgentsMd: false` in the lock) to skip that rewrite and remove a previous block.
 
-`add` writes `.agent/plugins.json` first, then copies and updates the lock. `--no-sync`
+`add` writes `ai-plugin.json` first, then copies and updates the lock. `--no-sync`
 writes only the request. `sync` deletes plugins that are no longer requested.
 `remove --keep-files` drops both entries and leaves the copied files.
 
 MCP server keys are namespaced (`deck__owner_repo__plugin__server`) so sync does not
 clobber unrelated servers. The lock records those keys so remove can drop them.
 
-## plugins.json
+## ai-plugin.json
 
 The request, committed with the project:
 
@@ -82,7 +82,7 @@ The request, committed with the project:
 
 `ref` is the tag, branch, or commit you asked for.
 
-## plugins.lock.json
+## ai-plugin.lock.json
 
 The resolved install, local to the machine. `resolved` is the commit SHA `ref`
 pointed at when sync ran. `paths` and `mcpKeys` are everything that sync wrote for
@@ -92,8 +92,8 @@ block. Set it to `false`, or pass `--no-agents-md`, to leave `AGENTS.md` alone a
 strip a previous marked block.
 
 When the project already has a `.gitignore`, writing the lock appends
-`.agent/plugins.lock.json` to it (deck does not create `.gitignore`). Commit
-`.agent/plugins.json`. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
+`ai-plugin.lock.json` to it (deck does not create `.gitignore`). Commit
+`ai-plugin.json`. Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
 plugin asset directories, and generated MCP keys — or commit those copies for offline
 clones.
 

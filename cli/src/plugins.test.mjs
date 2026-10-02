@@ -24,7 +24,7 @@ test("add and remove requested plugins", () => {
   ]);
 });
 
-test("write and read plugins.json without resolved fields", () => {
+test("write and read ai-plugin.json without resolved fields", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-plugins-"));
   writePlugins(dir, {
     plugins: [
@@ -41,6 +41,6 @@ test("write and read plugins.json without resolved fields", () => {
   assert.deepEqual(round.plugins, [
     { marketplace: "acme/kit", name: "foo", ref: "main" },
   ]);
-  const raw = fs.readFileSync(path.join(dir, ".agent/plugins.json"), "utf8");
+  const raw = fs.readFileSync(path.join(dir, "ai-plugin.json"), "utf8");
   assert.equal(raw.includes("resolved"), false);
 });

@@ -109,10 +109,10 @@ npx @pinkpuma/deck sync --project /path/to/app
 ```
 
 It copies skills and agents into both `.claude/` and `.cursor/`, and merges MCP servers
-into `.mcp.json` and `.cursor/mcp.json`. `.agent/plugins.json` lists what to install.
-`.agent/plugins.lock.json` records the resolved commit and the paths that sync wrote.
-Commit `plugins.json`. When a `.gitignore` already exists, writing the lock appends
-`.agent/plugins.lock.json` to it.
+into `.mcp.json` and `.cursor/mcp.json`. `ai-plugin.json` lists what to install.
+`ai-plugin.lock.json` records the resolved commit and the paths that sync wrote.
+Commit `ai-plugin.json`. When a `.gitignore` already exists, writing the lock appends
+`ai-plugin.lock.json` to it.
 
 **Author a new marketplace** — empty repo layout (no plugins yet):
 

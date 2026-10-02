@@ -1,7 +1,6 @@
 import fs from "node:fs";
-import path from "node:path";
 import { ensureLockGitignored } from "./gitignore.mjs";
-import { AGENT_DIR, LOCK_FILE, lockPath } from "./paths.mjs";
+import { LOCK_FILE, lockPath } from "./paths.mjs";
 
 /** Supported lockfile format version. Bump when the schema is not backward-compatible. */
 export const LOCKFILE_FORMAT = 2;
@@ -116,8 +115,6 @@ export function readLockfile(projectRoot) {
 }
 
 export function writeLockfile(projectRoot, lock) {
-  const dir = path.join(projectRoot, AGENT_DIR);
-  fs.mkdirSync(dir, { recursive: true });
   const file = lockPath(projectRoot);
   const normalized = normalizeLockfile({
     lockfileVersion: LOCKFILE_FORMAT,
