@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { readDefaultUsage, rewriteAgentsMd } from "./agents.mjs";
-import { fetchMarketplace, resolvePluginDir } from "./github.mjs";
+import { copyWorkingTree, fetchMarketplace, resolvePluginDir } from "./github.mjs";
 import { entryId, emptyLockfile, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
 import { HOSTS, pluginAssetRel } from "./paths.mjs";
 
@@ -309,15 +309,22 @@ export function installFromPluginDir(projectRoot, entry, pluginDir, previous) {
  * so paths that disappeared can be deleted.
  */
 export function applyEntry(projectRoot, entry, lock) {
-  const fetched = fetchMarketplace(entry.marketplace, entry.ref);
+  const fetched = entry.from
+    ? copyWorkingTree(entry.from)
+    : fetchMarketplace(entry.marketplace, entry.ref);
   const pluginDir = resolvePluginDir(fetched.root, entry.name);
   const previous = (lock?.plugins || []).find(
     (plugin) => entryId(plugin) === entryId(entry),
   );
   const installed = installFromPluginDir(projectRoot, entry, pluginDir, previous);
+  const source = entry.from ? path.resolve(entry.from) : null;
   return {
     ...installed,
-    record: { ...installed.record, resolved: fetched.resolved },
+    record: {
+      ...installed.record,
+      resolved: fetched.resolved,
+      ...(source ? { source } : {}),
+    },
     cache: fetched.root,
   };
 }

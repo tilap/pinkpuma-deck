@@ -22,6 +22,9 @@ npx @pinkpuma/deck init
 npx @pinkpuma/deck add owner/marketplace-repo@plugin-name --ref v0.1.0
 npx @pinkpuma/deck sync
 
+# install a plugin you are editing, without changing ai-plugin.json
+npx @pinkpuma/deck link /path/to/marketplace@plugin-name
+
 # author a new marketplace repo
 npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
 ```

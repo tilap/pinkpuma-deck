@@ -106,13 +106,18 @@ The `cli/` package is published as [`@pinkpuma/deck`](cli/README.md).
 npx @pinkpuma/deck init --project /path/to/app
 npx @pinkpuma/deck add owner/repo@plugin-name --ref v0.1.0 --project /path/to/app
 npx @pinkpuma/deck sync --project /path/to/app
+
+# while editing a plugin, install that working tree into an app:
+npx @pinkpuma/deck link /path/to/marketplace@plugin-name --project /path/to/app
 ```
 
 It copies skills and agents into both `.claude/` and `.cursor/`, and merges MCP servers
 into `.mcp.json` and `.cursor/mcp.json`. `ai-plugin.json` lists what to install.
 `ai-plugin.lock.json` records the resolved commit and the paths that sync wrote.
-Commit `ai-plugin.json`. When a `.gitignore` already exists, writing the lock appends
-`ai-plugin.lock.json` to it.
+`ai-plugin.local.json` is a gitignored link to a checkout; on sync it wins over the
+same plugin in `ai-plugin.json`. Commit `ai-plugin.json`. When a `.gitignore` already
+exists, writing the lock or a link appends `ai-plugin.lock.json` and
+`ai-plugin.local.json` to it.
 
 **Author a new marketplace** — empty repo layout (no plugins yet):
 

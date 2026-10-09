@@ -1,6 +1,7 @@
 /** Shared paths for @pinkpuma/deck. */
 
 export const PLUGINS_FILE = "ai-plugin.json";
+export const LOCAL_PLUGINS_FILE = "ai-plugin.local.json";
 export const LOCK_FILE = "ai-plugin.lock.json";
 
 /** Where plugin components are copied for each host. */
@@ -21,6 +22,10 @@ export const HOSTS = {
 
 export function pluginsPath(projectRoot) {
   return `${projectRoot}/${PLUGINS_FILE}`;
+}
+
+export function localPluginsPath(projectRoot) {
+  return `${projectRoot}/${LOCAL_PLUGINS_FILE}`;
 }
 
 export function lockPath(projectRoot) {

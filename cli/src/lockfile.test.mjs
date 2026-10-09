@@ -103,6 +103,18 @@ test("round-trips agentsSnippets on the lock entry", () => {
   const round = readLockfile(dir);
   assert.deepEqual(round.plugins[0].agentsSnippets, withSnippets.agentsSnippets);
 });
+
+test("round-trips source on a linked lock entry", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
+  writeLockfile(dir, upsertLockEntry(emptyLockfile(), {
+    ...record,
+    source: "/work/kit",
+  }));
+  const round = readLockfile(dir);
+  assert.equal(round.plugins[0].source, "/work/kit");
+  writeLockfile(dir, upsertLockEntry(emptyLockfile(), record));
+  assert.equal(readLockfile(dir).plugins[0].source, undefined);
+});
 test("rejects unsupported lockfileVersion", () => {
   assert.throws(
     () => normalizeLockfile({ lockfileVersion: 1, plugins: [] }),

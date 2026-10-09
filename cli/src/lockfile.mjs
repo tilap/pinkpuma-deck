@@ -7,7 +7,7 @@ export const LOCKFILE_FORMAT = 2;
 
 /**
  * @typedef {{ skill: string, body: string }} AgentsSnippet
- * @typedef {{ marketplace: string, name: string, ref: string, resolved: string, paths: string[], mcpKeys: Record<string, string[]>, agentsSnippets: AgentsSnippet[] }} LockEntry
+ * @typedef {{ marketplace: string, name: string, ref: string, resolved: string, paths: string[], mcpKeys: Record<string, string[]>, agentsSnippets: AgentsSnippet[], source?: string }} LockEntry
  * @typedef {{ lockfileVersion: number, writeAgentsMd: boolean, plugins: LockEntry[] }} Lockfile
  */
 
@@ -70,6 +70,9 @@ function normalizeEntry(plugin, index) {
   const snippets = Array.isArray(agentsSnippets)
     ? agentsSnippets.map((snippet, i) => normalizeSnippet(snippet, index, i))
     : [];
+  if (plugin.source != null && typeof plugin.source !== "string") {
+    throw new Error(`${LOCK_FILE} plugins[${index}].source must be a string`);
+  }
   return {
     marketplace,
     name,
@@ -78,6 +81,9 @@ function normalizeEntry(plugin, index) {
     paths: [...paths],
     mcpKeys,
     agentsSnippets: snippets,
+    ...(typeof plugin.source === "string" && plugin.source
+      ? { source: plugin.source }
+      : {}),
   };
 }
 

@@ -3,6 +3,6 @@
   "version": "0.1.0",
   "description": "Release workflow for marketplace plugins — version bump, changelog, validation, optional tag.",
   "author": {
-    "name": "Julien Lavinh"
+    "name": "Julien La Vinh"
   }
 }
