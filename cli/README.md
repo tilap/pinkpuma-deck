@@ -104,8 +104,7 @@ On `sync`, a linked plugin replaces a committed request with the same marketplac
 name. `unlink` removes that override. If `ai-plugin.json` still requests the plugin,
 `unlink` installs that ref again.
 
-`DECK_LOCAL_<owner>__<repo>` remains the switch for scripts and integration tests. `link`
-is the command for day-to-day work on a plugin.
+`DECK_LOCAL_<owner>__<repo>` remains the switch for scripts and the toolbelt scenario in [`integration/`](integration/README.md). That scenario is not part of `npm test`. `link` is the command for day-to-day work on a plugin.
 
 ## ai-plugin.lock.json
 

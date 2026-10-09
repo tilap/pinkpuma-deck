@@ -135,6 +135,17 @@ When changing the CLI:
 cd cli && npm test
 ```
 
+`npm test` is the unit suite. The toolbelt scenario in [`cli/integration`](cli/integration/README.md) is separate and does not run on publish:
+
+```bash
+rm -rf cli/integration/sandbox
+node cli/integration/run.mjs \
+  --deck cli/src/cli.mjs \
+  --toolbelt /path/to/pinkpuma-toolbelt
+```
+
+Pull requests that change `cli/` run that scenario. The workflow checks out the private toolbelt repo with the Actions secret `TOOLBELT_READ_TOKEN` (contents: read on `tilap/pinkpuma-toolbelt`).
+
 Release: bump `cli/package.json` `version`, push to `main`, then tag `deck-vX.Y.Z`.
 GitHub Actions publishes via npm Trusted Publishing (OIDC) — no token, no manual
 approve. Configure Trusted Publisher with **`npm publish`** allowed for
