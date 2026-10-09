@@ -6,6 +6,8 @@ import path from "node:path";
 import {
   addPlugin,
   emptyPlugins,
+  mergePluginRequests,
+  parseLinkSpec,
   readPlugins,
   removePlugin,
   writePlugins,
@@ -43,4 +45,58 @@ test("write and read ai-plugin.json without resolved fields", () => {
   ]);
   const raw = fs.readFileSync(path.join(dir, "ai-plugin.json"), "utf8");
   assert.equal(raw.includes("resolved"), false);
+});
+
+test("ai-plugin.json drops a from path", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-plugins-"));
+  writePlugins(dir, {
+    plugins: [
+      {
+        marketplace: "acme/kit",
+        name: "foo",
+        ref: "v1.0.0",
+        from: "/tmp/checkout",
+      },
+    ],
+  });
+  assert.deepEqual(readPlugins(dir).plugins, [
+    { marketplace: "acme/kit", name: "foo", ref: "v1.0.0" },
+  ]);
+  assert.equal(
+    fs.readFileSync(path.join(dir, "ai-plugin.json"), "utf8").includes("from"),
+    false,
+  );
+});
+
+test("parseLinkSpec splits on the last @", () => {
+  assert.deepEqual(parseLinkSpec("/Users/me@host/kit@demo"), {
+    checkout: "/Users/me@host/kit",
+    name: "demo",
+  });
+  assert.throws(() => parseLinkSpec("demo"), /Expected <checkout>@<plugin-name>/);
+});
+
+test("a local link overrides the committed plugin and keeps from", () => {
+  const merged = mergePluginRequests(
+    {
+      plugins: [
+        { marketplace: "acme/kit", name: "foo", ref: "v1.0.0" },
+        { marketplace: "acme/kit", name: "bar", ref: "v2.0.0" },
+      ],
+    },
+    {
+      plugins: [
+        {
+          marketplace: "acme/kit",
+          name: "foo",
+          ref: "main",
+          from: "/work/kit",
+        },
+      ],
+    },
+  );
+  assert.deepEqual(merged.plugins, [
+    { marketplace: "acme/kit", name: "bar", ref: "v2.0.0" },
+    { marketplace: "acme/kit", name: "foo", ref: "main", from: "/work/kit" },
+  ]);
 });

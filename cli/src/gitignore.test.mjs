@@ -21,6 +21,7 @@ test("ensureLockGitignored appends the lock path once", () => {
   const first = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
   assert.match(first, /node_modules\//);
   assert.match(first, /^ai-plugin\.lock\.json$/m);
+  assert.match(first, /^ai-plugin\.local\.json$/m);
   assert.equal(ensureLockGitignored(dir).wrote, false);
   assert.equal(ensureLockGitignored(dir).reason, "already");
   assert.equal(fs.readFileSync(path.join(dir, ".gitignore"), "utf8"), first);
@@ -32,5 +33,16 @@ test("writeLockfile adds the lock path to an existing .gitignore", () => {
   writeLockfile(dir, emptyLockfile());
   const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
   assert.match(text, /^ai-plugin\.lock\.json$/m);
+  assert.match(text, /^ai-plugin\.local\.json$/m);
   assert.ok(fs.existsSync(path.join(dir, "ai-plugin.lock.json")));
+});
+
+test("ensureLockGitignored appends only the local file when the lock is already ignored", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
+  fs.writeFileSync(path.join(dir, ".gitignore"), "ai-plugin.lock.json\n");
+  assert.equal(ensureLockGitignored(dir).wrote, true);
+  const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
+  assert.equal(text.match(/^ai-plugin\.lock\.json$/gm).length, 1);
+  assert.match(text, /^ai-plugin\.local\.json$/m);
+  assert.equal(ensureLockGitignored(dir).reason, "already");
 });

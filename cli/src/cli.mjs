@@ -6,6 +6,7 @@ import {
   commitLockAndAgents,
   removeInstalledFiles,
 } from "./apply.mjs";
+import { checkoutRef, marketplaceIdFromCheckout, resolvePluginDir } from "./github.mjs";
 import {
   emptyLockfile,
   entryId,
@@ -15,12 +16,20 @@ import {
   setWriteAgentsMd,
   upsertLockEntry,
 } from "./lockfile.mjs";
-import { LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
+import { LOCAL_PLUGINS_FILE, LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
 import {
+  addLocalPlugin,
   addPlugin,
+  deleteLocalPlugins,
+  emptyLocalPlugins,
   ensurePlugins,
+  parseLinkSpec,
+  readLocalPlugins,
   readPlugins,
+  readRequestedPlugins,
+  removeLocalPlugin,
   removePlugin,
+  writeLocalPlugins,
   writePlugins,
 } from "./plugins.mjs";
 import { scaffoldMarketplace } from "./scaffold.mjs";
@@ -32,11 +41,14 @@ Usage:
   deck init [--project <dir>]
   deck add <owner/repo@plugin> [--ref <ref>] [--project <dir>] [--no-sync] [--no-agents-md|--agents-md]
   deck remove <owner/repo@plugin> [--project <dir>] [--keep-files] [--no-agents-md|--agents-md]
+  deck link <checkout>@<plugin> [--project <dir>] [--no-sync] [--no-agents-md|--agents-md]
+  deck unlink <owner/repo@plugin> [--project <dir>] [--keep-files] [--no-agents-md|--agents-md]
   deck sync [--project <dir>] [--no-agents-md|--agents-md]
   deck list [--project <dir>]
   deck scaffold <name> --owner <name> [--dir <parent>]
 
 Request: ${PLUGINS_FILE}
+Local:   ${LOCAL_PLUGINS_FILE} (gitignored links to a working tree; wins over the same plugin)
 Lock:    ${LOCK_FILE}
 Copies skills/agents into .claude/ and .cursor/, plus per-plugin support files
 under .claude/plugins and .cursor/plugins. Merges MCP into .mcp.json and .cursor/mcp.json.
@@ -167,10 +179,80 @@ async function main() {
       console.log(`Removed ${entryId({ marketplace, name })}`);
       break;
     }
+    case "link": {
+      const spec = rest[0];
+      if (!spec) throw new Error("link requires <checkout>@<plugin>");
+      const { checkout, name } = parseLinkSpec(spec);
+      const from = path.resolve(checkout);
+      const marketplace = marketplaceIdFromCheckout(from);
+      resolvePluginDir(from, name);
+      const ref = checkoutRef(from);
+      const local = addLocalPlugin(readLocalPlugins(root) ?? emptyLocalPlugins(), {
+        marketplace,
+        name,
+        ref,
+        from,
+      });
+      writeLocalPlugins(root, local);
+      const entry = local.plugins.find(
+        (plugin) => plugin.marketplace === marketplace && plugin.name === name,
+      );
+      if (!args.sync) {
+        console.log(`Linked ${entryId(entry)} from ${from} (${LOCAL_PLUGINS_FILE})`);
+        break;
+      }
+      const lock = withAgentsMdPreference(
+        readLockfile(root) ?? emptyLockfile(),
+        args.writeAgentsMd,
+      );
+      const result = applyEntry(root, entry, lock);
+      commitLockAndAgents(root, upsertLockEntry(lock, result.record));
+      console.log(`Linked ${entryId(entry)} from ${from}`);
+      console.log("Applied:");
+      printResults([result]);
+      break;
+    }
+    case "unlink": {
+      const spec = rest[0];
+      if (!spec) throw new Error("unlink requires owner/repo@plugin");
+      const local = readLocalPlugins(root);
+      if (!local) throw new Error(`No ${LOCAL_PLUGINS_FILE}`);
+      const { marketplace, name } = parsePluginSpec(spec);
+      const id = entryId({ marketplace, name });
+      const nextLocal = removeLocalPlugin(local, spec);
+      if (nextLocal.plugins.length === 0) deleteLocalPlugins(root);
+      else writeLocalPlugins(root, nextLocal);
+      if (args.keepFiles) {
+        console.log(`Unlinked ${id} (kept installed files)`);
+        break;
+      }
+      const lock = withAgentsMdPreference(
+        readLockfile(root) ?? emptyLockfile(),
+        args.writeAgentsMd,
+      );
+      const committed = readPlugins(root)?.plugins.find(
+        (plugin) => entryId(plugin) === id,
+      );
+      if (committed) {
+        const result = applyEntry(root, committed, lock);
+        commitLockAndAgents(root, upsertLockEntry(lock, result.record));
+        console.log(`Unlinked ${id}; restored ref=${committed.ref}`);
+        console.log("Applied:");
+        printResults([result]);
+        break;
+      }
+      const record = lock.plugins.find((plugin) => entryId(plugin) === id);
+      if (record) removeInstalledFiles(root, record);
+      commitLockAndAgents(root, removeLockEntry(lock, spec));
+      console.log(`Unlinked ${id}`);
+      break;
+    }
     case "sync":
     case "apply": {
-      const doc = readPlugins(root);
-      if (!doc) throw new Error(`No ${PLUGINS_FILE} — run init or add first`);
+      const doc = readRequestedPlugins(root);
+      if (!doc) {
+        throw new Error(`No ${PLUGINS_FILE} — run init, add, or link first`);
+      }
       if (doc.plugins.length === 0) {
         const lock = withAgentsMdPreference(
           readLockfile(root) ?? emptyLockfile(),
@@ -191,16 +273,21 @@ async function main() {
       break;
     }
     case "list": {
-      const doc = readPlugins(root);
+      const doc = readRequestedPlugins(root);
       if (!doc || doc.plugins.length === 0) {
         console.log("(no plugins)");
         break;
       }
+      const committed = readPlugins(root);
       const lock = readLockfile(root);
       for (const plugin of doc.plugins) {
         const record = lock?.plugins.find((item) => entryId(item) === entryId(plugin));
         const resolved = record?.resolved ? `  resolved=${record.resolved}` : "";
-        console.log(`${entryId(plugin)}  ref=${plugin.ref}${resolved}`);
+        const pinned = committed?.plugins.find((item) => entryId(item) === entryId(plugin));
+        const local = plugin.from
+          ? `local from=${plugin.from}  ${pinned ? `overrides ref=${pinned.ref}  ` : ""}`
+          : "";
+        console.log(`${entryId(plugin)}  ${local}ref=${plugin.ref}${resolved}`);
       }
       break;
     }
