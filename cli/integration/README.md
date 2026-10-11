@@ -45,6 +45,7 @@ Each action runs in order. The checks are in `run.mjs`.
 2. **`unknown-command`** — `deck nope` is rejected.
 3. **`add-invalid-spec`** — `deck add not-a-spec` is rejected (`Cannot read`), nothing written.
 4. **`seed-local-files`** — skill `my-local`, `code-reviewer` agents marked `USER OWNED`, MCP servers `user-notes` and `user-cursor`, `.gitignore` (`node_modules/`), `AGENTS.md`.
+4b. **`init`** — `deck init` creates `ai-plugin.json` and `CLAUDE.md` (`@AGENTS.md`), keeps the user's `AGENTS.md` and `.gitignore`, and appends deck's managed block. A second `init` changes nothing.
 5. **`add-git-workflow`** — `deck add` creates `ai-plugin.json`. Skills copied, `CONVENTIONS.md` links resolve, `DEFAULT_USAGE.md` is absent from the skill directory, Skills block in `AGENTS.md`. The request has `id`, `source: github:tilap/pinkpuma-toolbelt`, `plugin`, no `ref`. Lock format 3 with a commit, an integrity, the four skills, and the four snippets. `.gitignore` gains `.ai/installed/` and the local file, not the lock.
 6. **`add-dev-agents-refused`** — the user's `code-reviewer` agents block the install (`was not written by deck`). Nothing is written.
 7. **`add-dev-agents`** — with `--force`, the plugin's `code-reviewer` replaces the user's.
@@ -84,7 +85,7 @@ Each action runs in order. The checks are in `run.mjs`.
 41. **`profile-use`** — `deck profile use builder`: the profile's skill arrives, the base is up to date, `CLAUDE.md` imports the prompt, the Cursor rule exists.
 42. **`profile-off`** — back to the base; link, rule, and import removed.
 43. **`materialize-profile`** — `deck materialize --profile builder --out … --json` builds the base and the builder's plugin into the folder and leaves the project untouched.
-44. **`old-commands-gone`** — `init`, `sync`, `list`, `doctor`, `scaffold` are unknown commands; `deck status --frozen` is refused.
+44. **`old-commands-gone`** — `sync`, `list`, `doctor`, `scaffold` are unknown commands; `deck status --frozen` is refused.
 
 ## Reports
 

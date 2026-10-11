@@ -1,5 +1,5 @@
 import { rewriteAgentsMd } from "./agents.mjs";
-import { ensureDeckGitignored } from "./gitignore.mjs";
+import { writeGitignoreBlock } from "./gitignore.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -8,6 +8,7 @@ import { copyInstall, removeInstalledFiles } from "./hosts/copy.mjs";
 import { emptyLockfile, removeLockEntry, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
 import { materialize, pluginName, removeMaterialized, treeIntegrity, writeDeckMarketplace } from "./materialize.mjs";
 import { PLUGINS_FILE, deckPluginRel } from "./paths.mjs";
+import { readPlugins } from "./plugins.mjs";
 import { loadProject } from "./project.mjs";
 import { fetchSource, pinDescriptor } from "./sources/fetch.mjs";
 import { locatePlugin } from "./sources/locate.mjs";
@@ -164,6 +165,19 @@ function deactivate(projectRoot, id, state) {
 }
 
 /**
+ * The paths copy mode wrote, to list in deck's .gitignore block, unless
+ * ai-plugin.json says `"gitignoreCopies": false` (the project commits them).
+ */
+function gitignoredCopies(projectRoot, state) {
+  let commit = false;
+  try {
+    commit = readPlugins(projectRoot)?.gitignoreCopies === false;
+  } catch {}
+  if (commit) return [];
+  return Object.values(state.plugins).flatMap((entry) => entry.paths ?? []);
+}
+
+/**
  * Write the lock, the state, and the deck marketplace. `saveLock` lets a caller
  * split one in-memory lock across files (the base and the active profile).
  */
@@ -174,7 +188,7 @@ function persist(projectRoot, lock, state, saveLock) {
   else writeLockfile(projectRoot, lock);
   writeState(projectRoot, state);
   writeDeckMarketplace(projectRoot, Object.keys(state.plugins));
-  ensureDeckGitignored(projectRoot);
+  writeGitignoreBlock(projectRoot, { copies: gitignoredCopies(projectRoot, state) });
 }
 
 /**

@@ -103,6 +103,7 @@ The `cli/` package is published as [`@pinkpuma/deck`](cli/README.md).
 **Consumer projects** — install plugins and skills into an app:
 
 ```bash
+npx @pinkpuma/deck init --project /path/to/app
 npx @pinkpuma/deck add owner/repo@plugin-name --ref v0.1.0 --project /path/to/app
 npx @pinkpuma/deck install --frozen --project /path/to/app
 

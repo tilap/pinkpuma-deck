@@ -61,8 +61,7 @@ test("profile use and off wire the prompt for Claude and Cursor, and only that",
   assert.equal(fs.readlinkSync(path.join(root, ".ai/current")), "profiles/builder");
   assert.equal(fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8"), `# Rules\n\n${IMPORT_LINE}\n`);
   assert.match(fs.readFileSync(path.join(root, CURSOR_RULE), "utf8"), /alwaysApply: true[\s\S]*You are the builder agent/);
-  const ignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
-  assert.equal(ignore.match(/\.ai\/current/g).length, 1);
+  assert.equal(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), "node_modules\n", "deck install owns .gitignore, not profile use");
 
   clearProfile(root);
   assert.equal(fs.readFileSync(path.join(root, "CLAUDE.md"), "utf8"), "# Rules\n");

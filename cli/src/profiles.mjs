@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { PLUGINS_FILE } from "./paths.mjs";
+import { CURSOR_RULE_PATH, PLUGINS_FILE } from "./paths.mjs";
 import { CURRENT_LINK, PROFILES_DIR, isValidProfileName, profileDir } from "./project.mjs";
 
 /**
@@ -8,11 +8,11 @@ import { CURRENT_LINK, PROFILES_DIR, isValidProfileName, profileDir } from "./pr
  * prompt is wired once and follows the .ai/current link:
  *   Claude Code  CLAUDE.md imports @.ai/current/prompt.md
  *   Cursor       .cursor/rules/deck-profile.mdc (alwaysApply) holds a copy of prompt.md
+ * Both are local files, listed in deck's .gitignore block.
  */
 
 export const IMPORT_LINE = `@${CURRENT_LINK}/prompt.md`;
-export const CURSOR_RULE = ".cursor/rules/deck-profile.mdc";
-const GITIGNORE_HEADER = "# @pinkpuma/deck — active profile";
+export const CURSOR_RULE = CURSOR_RULE_PATH;
 
 export function createProfile(projectRoot, name) {
   if (!isValidProfileName(name)) {
@@ -34,7 +34,6 @@ export function useProfile(projectRoot, name) {
   fs.symlinkSync(path.relative(path.dirname(link), profileDir(projectRoot, name)), link);
   ensureClaudeImport(projectRoot);
   writeCursorRule(projectRoot, name);
-  ensureProfileGitignore(projectRoot);
 }
 
 /** Drop the active profile's link, its Cursor rule, and the CLAUDE.md import. */
@@ -78,14 +77,4 @@ function writeCursorRule(projectRoot, name) {
     rule,
     `---\ndescription: Active agent profile (${name}), written by deck profile use\nalwaysApply: true\n---\n\n${body}`,
   );
-}
-
-/** The active-profile files are local: list them in an existing .gitignore. */
-function ensureProfileGitignore(projectRoot) {
-  const file = path.join(projectRoot, ".gitignore");
-  if (!fs.existsSync(file)) return;
-  const text = fs.readFileSync(file, "utf8");
-  if (text.includes(GITIGNORE_HEADER)) return;
-  const sep = text.length === 0 || text.endsWith("\n\n") ? "" : text.endsWith("\n") ? "\n" : "\n\n";
-  fs.writeFileSync(file, `${text}${sep}${GITIGNORE_HEADER}\n${CURRENT_LINK}\n${CURSOR_RULE}\n`);
 }

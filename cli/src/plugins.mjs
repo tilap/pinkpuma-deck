@@ -1,5 +1,4 @@
 import fs from "node:fs";
-import { ensureDeckGitignored } from "./gitignore.mjs";
 import { LOCAL_PLUGINS_FILE, PLUGINS_FILE, localPluginsPath, pluginsPath } from "./paths.mjs";
 import { normalizeRequest } from "./sources/spec.mjs";
 
@@ -9,7 +8,7 @@ import { normalizeRequest } from "./sources/spec.mjs";
  *
  * @typedef {import("./sources/spec.mjs").Request} Request
  * @typedef {"copy" | "native" | "off"} HostMode
- * @typedef {{ plugins: Request[], hosts?: { claude?: HostMode, cursor?: HostMode }, agentsMd?: boolean }} PluginsFile
+ * @typedef {{ plugins: Request[], hosts?: { claude?: HostMode, cursor?: HostMode }, agentsMd?: boolean, gitignoreCopies?: boolean }} PluginsFile
  */
 
 const HOST_MODES = new Set(["copy", "native", "off"]);
@@ -46,13 +45,16 @@ function normalizeList(list, file) {
 export function normalizePlugins(raw) {
   if (!raw || typeof raw !== "object") throw new Error(`Invalid ${PLUGINS_FILE}`);
   const hosts = normalizeHosts(raw.hosts);
-  if (raw.agentsMd != null && typeof raw.agentsMd !== "boolean") {
-    throw new Error(`${PLUGINS_FILE} agentsMd must be true or false`);
+  for (const key of ["agentsMd", "gitignoreCopies"]) {
+    if (raw[key] != null && typeof raw[key] !== "boolean") {
+      throw new Error(`${PLUGINS_FILE} ${key} must be true or false`);
+    }
   }
   return {
     plugins: normalizeList(raw.plugins, PLUGINS_FILE).map(({ from, ...request }) => request),
     ...(hosts ? { hosts } : {}),
     ...(raw.agentsMd === false ? { agentsMd: false } : {}),
+    ...(raw.gitignoreCopies === false ? { gitignoreCopies: false } : {}),
   };
 }
 
@@ -123,7 +125,6 @@ export function writeLocalPlugins(projectRoot, doc) {
   const normalized = normalizeLocalPlugins(doc);
   normalized.plugins.sort((a, b) => a.id.localeCompare(b.id));
   fs.writeFileSync(localPluginsPath(projectRoot), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
-  ensureDeckGitignored(projectRoot);
   return normalized;
 }
 

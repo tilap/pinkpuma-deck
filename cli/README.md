@@ -21,6 +21,7 @@ npx @pinkpuma/deck --help
 ## Commands
 
 ```
+deck init [--commit-copies]
 deck add <source> [--skill <name>]… [--ref <ref>] [--profile <name>]
 deck remove <id> [--profile <name>]
 deck install [--frozen]
@@ -35,6 +36,7 @@ deck materialize --out <dir> [--profile <name>] [--json]
 
 | Command      | Effect                                                                                                    |
 | ------------ | --------------------------------------------------------------------------------------------------------- |
+| `init`       | Wire deck into the project: see [Set up a project](#set-up-a-project)                                     |
 | `add`        | Resolve, install, and lock. The request is written only if that succeeds. Creates `ai-plugin.json` if needed |
 | `remove`     | Drop the request, its normalized tree, its installed files, and its lock entry                            |
 | `install`    | Make the project match the base and the active profile, pinned by the locks. `--frozen` for CI            |
@@ -51,6 +53,46 @@ did not write), and `--help`. An option a command does not take is refused.
 
 Advanced options: `add --id <id> --path <dir in source> --sha256 <hex> --no-install`,
 `remove --keep-files` and `unlink --keep-files`, `link --id <id> --path <dir> --no-install`.
+
+## Set up a project
+
+```bash
+deck init                  # once per project; safe to run again
+deck init --commit-copies  # same, but commit the copies in .claude/ and .cursor/
+```
+
+| File             | `deck init`                                                                 | Afterwards                                     |
+| ---------------- | --------------------------------------------------------------------------- | ---------------------------------------------- |
+| `ai-plugin.json` | Created when missing                                                        | `deck add` / `remove`                          |
+| `.gitignore`     | Created when missing; deck's managed block written                          | `deck install` rewrites the block              |
+| `AGENTS.md`      | Created when missing                                                        | `deck install` rewrites its `## Skills` block  |
+| `CLAUDE.md`      | Created when missing, or given an `@AGENTS.md` line                         | `deck profile use` / `off` add or drop `@.ai/current/prompt.md` |
+
+`CLAUDE.md` imports `AGENTS.md`, so Claude Code reads what Cursor reads: write project
+instructions once, in `AGENTS.md`.
+
+deck's block in `.gitignore` sits between two markers and is rewritten whole; lines
+outside it are never touched:
+
+```
+# >>> @pinkpuma/deck (managed: rewritten by deck install)
+.ai/installed/
+.ai/current
+ai-plugin.local.json
+.cursor/rules/deck-profile.mdc
+/.cursor/skills/commit
+…
+# <<< @pinkpuma/deck
+```
+
+Besides the local files, it lists every path copy mode wrote in `.claude/` and `.cursor/`:
+like `node_modules`, they come back with `deck install`, so the repository holds only the
+intent (`ai-plugin.json`, locks, profiles). `deck init --commit-copies` sets
+`"gitignoreCopies": false` in `ai-plugin.json`: the copies stay out of the block and get
+committed, so a fresh clone works in Cursor before `deck install`. Shared files deck edits
+(`.mcp.json`, `.cursor/mcp.json`, `AGENTS.md`, `CLAUDE.md`) are never ignored.
+
+`deck install` never creates `.gitignore`; `deck status` warns when the block is missing.
 
 ## Profiles
 
@@ -80,7 +122,7 @@ deck profile list                                # * marks the active one
 The prompt follows `.ai/current`: `profile use` adds `@.ai/current/prompt.md` to
 `CLAUDE.md` once, and writes `.cursor/rules/deck-profile.mdc` (`alwaysApply`) from the
 profile's `prompt.md`. `profile off` removes both. `.ai/current` and the Cursor rule are
-listed in an existing `.gitignore`.
+in deck's `.gitignore` block.
 
 ## Materialize
 
@@ -204,8 +246,9 @@ a marked `## Skills` block. Deck never creates `AGENTS.md`.
 
 ## ai-plugin.json
 
-Settings: `"hosts"` (see above) and `"agentsMd": false` to leave `AGENTS.md` alone (the
-lock mirrors it as `writeAgentsMd`).
+Settings: `"hosts"` (see above), `"agentsMd": false` to leave `AGENTS.md` alone (the
+lock mirrors it as `writeAgentsMd`), and `"gitignoreCopies": false` to commit the copies
+(see [Set up a project](#set-up-a-project)).
 
 ```json
 {
@@ -249,7 +292,7 @@ pinned source is downloaded once per machine.
 `install --frozen` refuses a request the lock does not pin, a lock entry nothing
 requests, and a normalized tree whose integrity differs — use it in CI.
 
-When a `.gitignore` exists, deck lists `.ai/installed/` and `ai-plugin.local.json` in it.
+`.gitignore`: see [Set up a project](#set-up-a-project).
 
 ## Developing a plugin
 

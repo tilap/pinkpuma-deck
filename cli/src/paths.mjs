@@ -9,6 +9,10 @@ export const AI_DIR = ".ai";
 /** Like node_modules: one normalized plugin per id, and what deck wrote here. Never committed. */
 export const INSTALLED_DIR = `${AI_DIR}/installed`;
 export const STATE_FILE = `${INSTALLED_DIR}/state.json`;
+/** .ai/current → profiles/<name>: the active profile. */
+export const CURRENT_LINK_PATH = `${AI_DIR}/current`;
+/** The active profile's prompt, as a Cursor rule. */
+export const CURSOR_RULE_PATH = ".cursor/rules/deck-profile.mdc";
 
 /** Where copy mode writes plugin components for each host. */
 export const HOSTS = {

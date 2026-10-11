@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { emptyLockfile, readLockfile, writeLockfile } from "./lockfile.mjs";
-import { AI_DIR, PLUGINS_FILE } from "./paths.mjs";
+import { AI_DIR, CURRENT_LINK_PATH, PLUGINS_FILE } from "./paths.mjs";
 import { emptyPlugins, mergePluginRequests, readLocalPlugins, readPlugins } from "./plugins.mjs";
 
 /**
@@ -11,8 +11,7 @@ import { emptyPlugins, mergePluginRequests, readLocalPlugins, readPlugins } from
  */
 
 export const PROFILES_DIR = `${AI_DIR}/profiles`;
-/** .ai/current → profiles/<name>: the active profile. */
-export const CURRENT_LINK = `${AI_DIR}/current`;
+export const CURRENT_LINK = CURRENT_LINK_PATH;
 
 export function profileDir(projectRoot, name) {
   return path.join(projectRoot, PROFILES_DIR, name);

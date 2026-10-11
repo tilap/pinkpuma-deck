@@ -22,11 +22,13 @@ import {
 import { clearProfile, createProfile, useProfile } from "./profiles.mjs";
 import { PROFILES_DIR, listProfiles, loadProject, profileDir } from "./project.mjs";
 import { defaultId, normalizeRequest, parseAddSpec } from "./sources/spec.mjs";
+import { initProject } from "./init.mjs";
 import { status } from "./status.mjs";
 
 const USAGE = `deck — install AI plugins and skills into a project, for Claude Code and Cursor
 
 Usage:
+  deck init [--commit-copies]
   deck add <source> [--skill <name>]… [--ref <ref>] [--profile <name>]
   deck remove <id> [--profile <name>]
   deck install [--frozen]
@@ -62,15 +64,17 @@ Files:
 
 Settings in ai-plugin.json:
   "hosts": { "claude": "native" | "copy" | "off", "cursor": "copy" | "off" }
-  "agentsMd": false        do not write the Skills block in AGENTS.md
+  "agentsMd": false          do not write the Skills block in AGENTS.md
+  "gitignoreCopies": false   commit the copies in .claude/ and .cursor/ (deck init --commit-copies)
 `;
 
 const VALUE_FLAGS = new Set(["ref", "profile", "id", "path", "sha256", "out"]);
-const BOOL_FLAGS = new Set(["frozen", "force", "keep-files", "no-install", "json", "help"]);
+const BOOL_FLAGS = new Set(["frozen", "force", "keep-files", "no-install", "json", "commit-copies", "help"]);
 const GLOBAL_FLAGS = ["force", "help"];
 
 /** Flags each command takes, besides the global ones. */
 const COMMANDS = {
+  init: ["commit-copies"],
   add: ["ref", "skill", "profile", "id", "path", "sha256", "no-install"],
   remove: ["profile", "keep-files"],
   install: ["frozen"],
@@ -428,6 +432,12 @@ async function main() {
   const root = args.project;
 
   switch (cmd) {
+    case "init": {
+      const done = initProject(root, { commitCopies: args.flags.has("commit-copies") });
+      if (done.length === 0) console.log("Already set up.");
+      for (const line of done) console.log(`  ${line}`);
+      return;
+    }
     case "add":
       return cmdAdd(root, args, rest);
     case "remove":

@@ -80,7 +80,7 @@ test("options a command does not take are refused", () => {
 
 test("old commands and options are gone", () => {
   const root = tmp("deck-cli-");
-  for (const cmd of ["init", "sync", "apply", "list", "doctor", "scaffold"]) {
+  for (const cmd of ["sync", "apply", "list", "doctor", "scaffold"]) {
     assert.match(deck(root, cmd).err, new RegExp(`Unknown command: ${cmd}`));
   }
   for (const flag of ["--plugin", "--no-sync", "--agents-md", "--no-agents-md"]) {
@@ -151,4 +151,17 @@ test("materialize refuses what the lock does not pin, and needs --out", () => {
   assert.match(r.err, /base-kit not pinned by a lock/);
   assert.match(deck(root, "materialize").err, /needs --out/);
   assert.match(deck(root, "materialize", "--out", tmp(), "--profile", "nope").err, /No profile "nope"/);
+});
+
+test("install keeps deck's .gitignore block in step with the copies it wrote", () => {
+  const repo = market();
+  const root = tmp("deck-cli-");
+  assert.equal(deck(root, "init").code, 0);
+  deck(root, "add", `git+${repo.url}@base-kit`);
+  const ignore = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+  assert.match(ignore, /^\/\.cursor\/skills\/commit$/m);
+  assert.match(ignore, /^\/\.claude\/skills\/commit$/m, "Claude falls back to copy mode in tests");
+  deck(root, "remove", "base-kit");
+  assert.doesNotMatch(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), /skills\/commit/);
+  assert.match(deck(root, "status").out, /✔/);
 });

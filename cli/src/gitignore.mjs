@@ -1,61 +1,73 @@
 import fs from "node:fs";
 import path from "node:path";
-import { INSTALLED_DIR, LOCAL_PLUGINS_FILE, LOCK_FILE } from "./paths.mjs";
+import { CURRENT_LINK_PATH, CURSOR_RULE_PATH, INSTALLED_DIR, LOCAL_PLUGINS_FILE, LOCK_FILE } from "./paths.mjs";
+
+/**
+ * One block of .gitignore belongs to deck, between two markers, and is
+ * rewritten whole: the local files, and (unless the project commits them) every
+ * path copy mode wrote in .claude/ and .cursor/. Lines outside the block are
+ * never touched. Like npm with node_modules: commit the intent, not the output.
+ */
 
 const GITIGNORE = ".gitignore";
-/** Machine-only files. The lock is committed, like package-lock.json. */
-const DECK_LOCAL_ENTRIES = [`${INSTALLED_DIR}/`, LOCAL_PLUGINS_FILE];
-const DECK_HEADER = "# @pinkpuma/deck — local install";
+export const BLOCK_START = "# >>> @pinkpuma/deck (managed: rewritten by deck install)";
+export const BLOCK_END = "# <<< @pinkpuma/deck";
 
-function isListed(text, entry) {
-  const bare = entry.replace(/\/$/, "");
-  for (const line of text.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) continue;
-    if ([bare, `/${bare}`, `${bare}/`, `/${bare}/`].includes(trimmed)) return true;
-  }
-  return false;
-}
+/** Local files every project ignores. */
+export const LOCAL_ENTRIES = [`${INSTALLED_DIR}/`, CURRENT_LINK_PATH, LOCAL_PLUGINS_FILE, CURSOR_RULE_PATH];
 
-/**
- * If the project already has a .gitignore, list `.ai/installed/` and the local link
- * file in it. Does not create .gitignore. Idempotent.
- * @returns {{ wrote: boolean, reason: string }}
- */
-export function ensureDeckGitignored(projectRoot) {
+/** The current block's lines (markers excluded), or null when there is none. */
+export function readBlock(projectRoot) {
   const file = path.join(projectRoot, GITIGNORE);
-  if (!fs.existsSync(file)) return { wrote: false, reason: "missing" };
-
-  const original = fs.readFileSync(file, "utf8");
-  let text = original;
-  const missing = DECK_LOCAL_ENTRIES.filter((entry) => !isListed(text, entry));
-  if (missing.length === 0) return { wrote: false, reason: "already" };
-
-  const headerPresent = text.includes(DECK_HEADER);
-  const block = `${headerPresent ? "" : `${DECK_HEADER}\n`}${missing.join("\n")}\n`;
-  if (headerPresent) {
-    text = text.replace(DECK_HEADER, `${DECK_HEADER}\n${missing.join("\n")}`);
-  } else if (text.length === 0) {
-    text = block;
-  } else {
-    text = `${text.replace(/\n*$/, "\n")}\n${block}`;
-  }
-  if (!text.endsWith("\n")) text += "\n";
-  fs.writeFileSync(file, text, "utf8");
-  return { wrote: true, reason: "updated" };
+  if (!fs.existsSync(file)) return null;
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/);
+  const start = lines.indexOf(BLOCK_START);
+  const end = lines.indexOf(BLOCK_END, start + 1);
+  if (start === -1 || end === -1) return null;
+  return lines.slice(start + 1, end);
 }
 
 /**
- * What an existing .gitignore says about deck's files, for `deck doctor`.
- * @returns {null | { deckIgnored: boolean, localIgnored: boolean, lockIgnored: boolean }}
+ * Write deck's block in .gitignore.
+ * @param {string} projectRoot
+ * @param {{ copies?: string[], create?: boolean }} [options]
+ *   copies: project paths copy mode wrote, to ignore (empty when they are committed)
+ *   create: create .gitignore when it is missing (deck init); install never creates it
+ * @returns {{ wrote: boolean, created: boolean }}
+ */
+export function writeGitignoreBlock(projectRoot, { copies = [], create = false } = {}) {
+  const file = path.join(projectRoot, GITIGNORE);
+  const exists = fs.existsSync(file);
+  if (!exists && !create) return { wrote: false, created: false };
+
+  const original = exists ? fs.readFileSync(file, "utf8") : "";
+  const lines = original.length > 0 ? original.replace(/\n$/, "").split(/\r?\n/) : [];
+  const block = [BLOCK_START, ...LOCAL_ENTRIES, ...[...new Set(copies)].sort().map((rel) => `/${rel}`), BLOCK_END];
+  const start = lines.indexOf(BLOCK_START);
+  const end = start === -1 ? -1 : lines.indexOf(BLOCK_END, start + 1);
+
+  let next;
+  if (start !== -1 && end !== -1) {
+    next = [...lines.slice(0, start), ...block, ...lines.slice(end + 1)];
+  } else {
+    next = lines.length > 0 && lines.at(-1) !== "" ? [...lines, "", ...block] : [...lines, ...block];
+  }
+  const text = `${next.join("\n")}\n`;
+  if (text === original) return { wrote: false, created: false };
+  fs.writeFileSync(file, text, "utf8");
+  return { wrote: true, created: !exists };
+}
+
+/**
+ * What .gitignore says about deck's files, for `deck status`.
+ * @returns {null | { block: boolean, lockIgnored: boolean }}
  */
 export function gitignoreStatus(projectRoot) {
   const file = path.join(projectRoot, GITIGNORE);
   if (!fs.existsSync(file)) return null;
-  const text = fs.readFileSync(file, "utf8");
+  const lines = fs.readFileSync(file, "utf8").split(/\r?\n/).map((l) => l.trim());
   return {
-    installedIgnored: isListed(text, `${INSTALLED_DIR}/`),
-    localIgnored: isListed(text, LOCAL_PLUGINS_FILE),
-    lockIgnored: isListed(text, LOCK_FILE),
+    block: readBlock(projectRoot) !== null,
+    lockIgnored: lines.some((l) => [LOCK_FILE, `/${LOCK_FILE}`].includes(l)),
   };
 }

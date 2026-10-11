@@ -423,6 +423,36 @@ function buildSteps() {
       ],
     },
     {
+      id: "init",
+      action: "deck init",
+      run(api) {
+        api.deck(["init"]);
+      },
+      checks: [
+        {
+          id: "wired",
+          expected:
+            "deck init crée ai-plugin.json et CLAUDE.md (qui importe @AGENTS.md), garde AGENTS.md et le .gitignore de l'utilisateur, et ajoute le bloc géré de deck (.ai/installed/, .ai/current, ai-plugin.local.json, la règle Cursor). Un second init ne change rien.",
+          test(api) {
+            const first = lastCommand(api);
+            const second = api.deck(["init"]);
+            const ignore = readText(api.target, ".gitignore");
+            const ok =
+              first?.exitCode === 0 &&
+              has(api.target, REQUEST_FILE) &&
+              readText(api.target, "CLAUDE.md") === "@AGENTS.md\n" &&
+              readText(api.target, "AGENTS.md") === "# Project notes\n" &&
+              ignore.startsWith("node_modules/\n\n# >>> @pinkpuma/deck") &&
+              [".ai/installed/", ".ai/current", "ai-plugin.local.json", ".cursor/rules/deck-profile.mdc"].every((l) =>
+                ignore.split("\n").includes(l),
+              ) &&
+              second.stdout.includes("Already set up.");
+            return { ok, actual: `exit=${first?.exitCode} ${first?.stdout.trim()} | second: ${second.stdout.trim()}` };
+          },
+        },
+      ],
+    },
+    {
       id: "add-git-workflow",
       action: `deck add ${TOOLBELT_REPO}@git-workflow`,
       run(api) {
@@ -1719,18 +1749,18 @@ function buildSteps() {
     },
     {
       id: "old-commands-gone",
-      action: "deck init, sync, list, doctor, scaffold ; deck status --frozen",
+      action: "deck sync, list, doctor, scaffold ; deck status --frozen",
       run(api) {
-        for (const cmd of ["init", "sync", "list", "doctor", "scaffold"]) api.deck([cmd]);
+        for (const cmd of ["sync", "list", "doctor", "scaffold"]) api.deck([cmd]);
         api.deck(["status", "--frozen"]);
       },
       checks: [
         {
           id: "refused",
           expected:
-            "Les anciennes commandes sont inconnues (`Unknown command`) et une option qu'une commande ne prend pas est refusée (`deck status does not take --frozen`).",
+            "Les anciennes commandes (sync, list, doctor, scaffold) sont inconnues (`Unknown command`) et une option qu'une commande ne prend pas est refusée (`deck status does not take --frozen`).",
           test(api) {
-            const old = ["init", "sync", "list", "doctor", "scaffold"].map((name) => commandNamed(api, name));
+            const old = ["sync", "list", "doctor", "scaffold"].map((name) => commandNamed(api, name));
             const status = commandNamed(api, "status");
             const ok =
               old.every((c) => c?.exitCode === 1 && c.stderr.includes(`Unknown command: ${c.argv[1]}`)) &&
