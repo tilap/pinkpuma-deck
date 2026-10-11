@@ -19,23 +19,69 @@ npx @pinkpuma/deck --help
 
 ## Commands
 
-| Command                                                                                 | Effect                                                                         |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `init`                                                                                  | Create an empty `ai-plugin.json`                                               |
-| `add <source> [--ref] [--plugin] [--skill <name>]… [--path] [--id] [--sha256] [--no-sync]` | Resolve, install, and lock; the request is written only if that succeeds      |
-| `remove <id> [--keep-files]`                                                            | Drop the request, its normalized tree, its installed files, and its lock entry |
-| `install [--frozen]` (alias `sync`)                                                     | Make the project match `ai-plugin.json`, pinned by the lock                    |
-| `update [<id>…]`                                                                        | Resolve refs again (all, or the ids given) and rewrite the lock                |
-| `list`                                                                                  | Requests, their lock pin, and their components                                 |
-| `outdated`                                                                              | Lock pins vs what each ref or range points to now, and newer release tags (exit 1 when behind) |
-| `doctor`                                                                                | Check request ↔ lock ↔ `.deck/` ↔ host activation ↔ `.gitignore` (exit 1 on errors) |
-| `link <checkout>[@<plugin>] [--id] [--skill]… [--path]`                                 | Install a working tree, uncommitted files included. Not locked                 |
-| `unlink <id> [--keep-files]`                                                            | Drop the link; reinstall the committed request if there is one                 |
-| `scaffold <name> --owner <name> [--dir <parent>]`                                       | Create a new marketplace repo under `<dir>/<name>`                             |
+```
+deck add <source> [--skill <name>]… [--ref <ref>] [--profile <name>]
+deck remove <id> [--profile <name>]
+deck install [--frozen]
+deck update [<id>…] [--profile <name>]
+deck status
+deck outdated
+deck link <folder>[@<plugin>] [--skill <name>]…
+deck unlink <id>
+deck profile new|use|off|list [<name>]
+```
 
-Common flags: `--project <dir>` (`-C`) scopes the command to a project root (default:
-cwd). `--force` lets copy mode replace a file deck did not write. `--no-agents-md` /
-`--agents-md` control the `AGENTS.md` skills block.
+| Command      | Effect                                                                                                    |
+| ------------ | --------------------------------------------------------------------------------------------------------- |
+| `add`        | Resolve, install, and lock. The request is written only if that succeeds. Creates `ai-plugin.json` if needed |
+| `remove`     | Drop the request, its normalized tree, its installed files, and its lock entry                            |
+| `install`    | Make the project match the base and the active profile, pinned by the locks. `--frozen` for CI            |
+| `update`     | Resolve refs again (all, or the ids given) and rewrite the lock                                           |
+| `status`     | Active profile, every request (`[base]`, `[profile x]`, `[link]`) and its lock pin, and every mismatch between request, lock, `.deck/`, hosts, and `.gitignore`. Never touches the network. Exit 1 on errors |
+| `outdated`   | Lock pins vs what each ref or range points to now, and newer release tags. Exit 1 when behind             |
+| `link`       | Install a local folder (a git checkout, uncommitted files included, or any folder of skills). Not locked  |
+| `unlink`     | Drop the link; reinstall the committed request if there is one                                            |
+| `profile`    | Agent profiles: see [Profiles](#profiles)                                                                 |
+
+Every command takes `-C <dir>` (`--project`), `--force` (let copy mode replace a file deck
+did not write), and `--help`. An option a command does not take is refused.
+
+Advanced options: `add --id <id> --path <dir in source> --sha256 <hex> --no-install`,
+`remove --keep-files` and `unlink --keep-files`, `link --id <id> --path <dir> --no-install`.
+
+Deprecated, kept for one version with a notice: `init` (`add` creates the file), `sync`
+and `apply` (`install`), `list` and `doctor` (`status`), `add --plugin` (write
+`<source>@<plugin>`), `--no-sync` (`--no-install`), `--agents-md` / `--no-agents-md` (the
+`agentsMd` setting), and `scaffold` (an authoring tool, leaving deck).
+
+## Profiles
+
+A profile is an agent role — builder, tester, reviewer — with its own prompt and plugins,
+on top of the base every profile gets:
+
+```
+ai-plugin.json, ai-plugin.lock.json         the base (committed)
+.ai/builder/prompt.md                       the builder's prompt (committed)
+.ai/builder/ai-plugin.json, …lock.json      the builder's plugins (committed)
+.ai/current → builder                       the active profile (local)
+```
+
+```bash
+deck profile new builder                         # .ai/builder/ with prompt.md and an empty request
+deck add anthropics/skills --skill pdf --profile builder
+deck profile use builder                         # base + builder installed; then a new Claude session / reload Cursor
+deck profile use tester                          # builder's plugins leave, tester's arrive, the base is untouched
+deck profile off
+deck profile list                                # * marks the active one
+```
+
+`deck add --profile x` on a profile that is not active resolves and locks the plugin in
+`.ai/x/` without installing it. A plugin id belongs to the base or to a profile, not both.
+
+The prompt follows `.ai/current`: `profile use` adds `@.ai/current/prompt.md` to
+`CLAUDE.md` once, and writes `.cursor/rules/deck-profile.mdc` (`alwaysApply`) from the
+profile's `prompt.md`. `profile off` removes both. `.ai/current` and the Cursor rule are
+listed in an existing `.gitignore`.
 
 ## Sources
 
@@ -117,7 +163,7 @@ Copy mode writes:
 Relative links from a skill to a support file are rewritten to the per-plugin directory.
 `${CLAUDE_PLUGIN_ROOT}`, `${CURSOR_PLUGIN_ROOT}`, and `${PLUGIN_ROOT}` are replaced with
 that directory in skills and MCP servers. Hooks are not active in copy mode; deck and
-`deck doctor` say so. Copy mode refuses to write a path another plugin owns, or one deck did not write
+`deck status` say so. Copy mode refuses to write a path another plugin owns, or one deck did not write
 (`--force` replaces the latter).
 
 Optional `skills/<name>/DEFAULT_USAGE.md` is not copied. Its body is stored in the lock
@@ -125,6 +171,9 @@ as `agentsSnippets` and, when `AGENTS.md` exists and `writeAgentsMd` is true, wr
 a marked `## Skills` block. Deck never creates `AGENTS.md`.
 
 ## ai-plugin.json
+
+Settings: `"hosts"` (see above) and `"agentsMd": false` to leave `AGENTS.md` alone (the
+lock mirrors it as `writeAgentsMd`).
 
 ```json
 {

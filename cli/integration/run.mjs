@@ -285,6 +285,15 @@ function requestUnchanged(api) {
   return readText(api.target, REQUEST_FILE) === api.requestBefore;
 }
 
+/** The AGENTS.md setting lives in ai-plugin.json; the lock mirrors it. */
+function setAgentsMd(api, on) {
+  const doc = readRequest(api.target);
+  if (on) delete doc.agentsMd;
+  else doc.agentsMd = false;
+  fs.writeFileSync(path.join(api.target, REQUEST_FILE), `${JSON.stringify(doc, null, 2)}\n`);
+  api.record({ argv: ["edit", REQUEST_FILE, "agentsMd", String(on)], exitCode: 0, stdout: "", stderr: "" });
+}
+
 function skillsBlock(target) {
   if (!has(target, "AGENTS.md")) return "";
   return readText(target, "AGENTS.md");
@@ -297,75 +306,48 @@ function buildSteps() {
 
   return [
     {
-      id: "init",
-      action: "deck init",
+      id: "status-empty",
+      action: "deck status (dossier vide)",
+      run(api) {
+        api.deck(["status"]);
+      },
+      checks: [
+        {
+          id: "no-request",
+          expected:
+            "Code 1 et `No ai-plugin.json. Run deck add <source>.` ; deck status n'écrit rien (ni requête, ni lock, ni .gitignore).",
+          test(api) {
+            const command = lastCommand(api);
+            const text = commandText(command);
+            const untouched = !has(api.target, REQUEST_FILE) && !has(api.target, LOCK_FILE) && !has(api.target, ".gitignore");
+            const ok = command?.exitCode === 1 && text.includes("No ai-plugin.json. Run deck add <source>.") && untouched;
+            return { ok, actual: `exit=${command?.exitCode} rienÉcrit=${untouched} ${text.trim()}` };
+          },
+        },
+      ],
+    },
+    {
+      id: "init-deprecated",
+      action: "deck init (obsolète)",
       run(api) {
         api.deck(["init"]);
       },
       checks: [
         {
-          id: "empty-request",
-          expected: "`ai-plugin.json` existe et `plugins` est un tableau vide.",
+          id: "still-works-with-notice",
+          expected:
+            "Code 0, stderr annonce que `init` est obsolète (deck add crée ai-plugin.json). La requête est vide, sans lock ni .gitignore.",
           test(api) {
+            const command = lastCommand(api);
             const doc = readRequest(api.target);
-            const ok = Array.isArray(doc.plugins) && doc.plugins.length === 0;
-            return {
-              ok,
-              actual: ok ? "requête vide" : JSON.stringify(doc),
-            };
-          },
-        },
-        {
-          id: "no-lock-yet",
-          expected: "`ai-plugin.lock.json` n'existe pas encore (init n'écrit que la requête).",
-          test(api) {
-            const present = has(api.target, LOCK_FILE);
-            return { ok: !present, actual: present ? "lock déjà là" : "pas de lock" };
-          },
-        },
-        {
-          id: "no-gitignore-created",
-          expected: "Deck ne crée pas de `.gitignore`.",
-          test(api) {
-            const present = has(api.target, ".gitignore");
-            return { ok: !present, actual: present ? ".gitignore créé" : "pas de .gitignore" };
-          },
-        },
-      ],
-    },
-    {
-      id: "init-again",
-      action: "deck init",
-      run(api) {
-        api.deck(["init"]);
-      },
-      checks: [
-        {
-          id: "stays-empty",
-          expected: "La requête reste vide (0 plugin).",
-          test(api) {
-            const count = readRequest(api.target).plugins.length;
-            return { ok: count === 0, actual: `${count} plugin(s)` };
-          },
-        },
-      ],
-    },
-    {
-      id: "list-empty",
-      action: "deck list",
-      run(api) {
-        api.deck(["list"]);
-      },
-      checks: [
-        {
-          id: "no-plugins",
-          expected: "La sortie contient `(no plugins)`.",
-          test(api) {
-            const output = lastCommand(api)?.stdout ?? "";
-            return {
-              ok: output.includes("(no plugins)"),
-              actual: output.trim() || "(sortie vide)",
-            };
+            const ok =
+              command?.exitCode === 0 &&
+              command.stderr.includes('"init" is deprecated') &&
+              Array.isArray(doc.plugins) &&
+              doc.plugins.length === 0 &&
+              !has(api.target, LOCK_FILE) &&
+              !has(api.target, ".gitignore");
+            return { ok, actual: `exit=${command?.exitCode} stderr=${command?.stderr.trim()} plugins=${doc.plugins?.length}` };
           },
         },
       ],
@@ -635,14 +617,14 @@ function buildSteps() {
     },
     {
       id: "list-installed",
-      action: "deck list",
+      action: "deck status",
       run(api) {
-        api.deck(["list"]);
+        api.deck(["status"]);
       },
       checks: [
         {
           id: "shows-both",
-          expected: "La sortie liste git-workflow et dev-agents (verrouillés), pas handoff, et aucun lien local.",
+          expected: "deck status liste git-workflow et dev-agents (verrouillés, [base]), pas handoff, et aucun lien local.",
           test(api) {
             const output = lastCommand(api)?.stdout ?? "";
             const ids = listedIds(output);
@@ -651,17 +633,17 @@ function buildSteps() {
               ids.includes("dev-agents") &&
               !ids.includes("handoff") &&
               (output.match(/locked: /g) ?? []).length === 2 &&
-              !output.includes("(linked");
+              !output.includes("[link");
             return { ok, actual: output.trim() || "(sortie vide)" };
           },
         },
       ],
     },
     {
-      id: "add-handoff-no-sync",
-      action: `deck add ${TOOLBELT_REPO}@handoff --no-sync`,
+      id: "add-handoff-no-install",
+      action: `deck add ${TOOLBELT_REPO}@handoff --no-install`,
       run(api) {
-        api.deck(["add", pluginId("handoff"), "--no-sync"]);
+        api.deck(["add", pluginId("handoff"), "--no-install"]);
       },
       checks: [
         {
@@ -682,10 +664,10 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-after-no-sync",
-      action: "deck sync",
+      id: "install-after-no-install",
+      action: "deck install",
       run(api) {
-        api.deck(["sync"]);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -881,11 +863,11 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-idempotent",
-      action: "deck sync",
+      id: "install-idempotent",
+      action: "deck install",
       run(api) {
         api.fileCountBefore = countInstalled(api.target);
-        api.deck(["sync"]);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -905,10 +887,11 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-no-agents-md",
-      action: "deck sync --no-agents-md",
+      id: "agents-md-off",
+      action: 'Régler "agentsMd": false dans ai-plugin.json, puis deck install',
       run(api) {
-        api.deck(["sync", "--no-agents-md"]);
+        setAgentsMd(api, false);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -916,7 +899,7 @@ function buildSteps() {
           expected:
             "writeAgentsMd passe à false, les marqueurs du bloc Skills disparaissent, le titre du projet reste.",
           test(api) {
-            const command = lastCommand(api);
+            const command = commandNamed(api, "install");
             const text = skillsBlock(api.target);
             const flag = readLock(api.target).writeAgentsMd;
             const ok =
@@ -931,10 +914,11 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-agents-md",
-      action: "deck sync --agents-md",
+      id: "agents-md-on",
+      action: 'Retirer "agentsMd" de ai-plugin.json, puis deck install',
       run(api) {
-        api.deck(["sync", "--agents-md"]);
+        setAgentsMd(api, true);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -1013,8 +997,8 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-prunes-edited-request",
-      action: "Retirer project-docs de ai-plugin.json à la main, puis deck sync",
+      id: "install-prunes-edited-request",
+      action: "Retirer project-docs de ai-plugin.json à la main, puis deck install",
       run(api) {
         const requestPath = path.join(api.target, REQUEST_FILE);
         const doc = readRequest(api.target);
@@ -1026,7 +1010,7 @@ function buildSteps() {
           stdout: "",
           stderr: "",
         });
-        api.deck(["sync"]);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -1034,7 +1018,7 @@ function buildSteps() {
           expected:
             "deck sync quitte avec le code 0, project-docs disparaît, git-workflow et npm-publish restent. Les copies de handoff (retirées avec --keep-files) restent : deck ne les suit plus.",
           test(api) {
-            const command = commandNamed(api, "sync");
+            const command = commandNamed(api, "install");
             const gone = absence(api.target, [
               ...skillRels("project-docs"),
               assetRel(".claude", "project-docs", "scripts/docs_index.py"),
@@ -1078,7 +1062,7 @@ function buildSteps() {
       run(api) {
         api.requestBefore = readText(api.target, REQUEST_FILE);
         api.deck(["link", `${api.toolbelt}@nextjs-app-structure`]);
-        api.deck(["list"]);
+        api.deck(["status"]);
       },
       checks: [
         {
@@ -1109,11 +1093,11 @@ function buildSteps() {
         },
         {
           id: "list-shows-local",
-          expected: "deck list affiche nextjs-app-structure avec `local:<checkout>` et `(linked)`.",
+          expected: "deck status affiche nextjs-app-structure avec `[link]` et `local:<checkout>`.",
           test(api) {
-            const output = commandNamed(api, "list")?.stdout ?? "";
+            const output = commandNamed(api, "status")?.stdout ?? "";
             const line = output.split("\n").find((item) => item.startsWith("nextjs-app-structure ")) ?? "";
-            const ok = line.includes(`local:${api.toolbelt}`) && line.includes("(linked)");
+            const ok = line.includes(`local:${api.toolbelt}`) && line.includes("[link]");
             return { ok, actual: output.trim() || "(sortie vide)" };
           },
         },
@@ -1133,18 +1117,18 @@ function buildSteps() {
       action: "deck link <toolbelt>@git-workflow",
       run(api) {
         api.deck(["link", `${api.toolbelt}@git-workflow`]);
-        api.deck(["list"]);
+        api.deck(["status"]);
       },
       checks: [
         {
           id: "overrides-committed-ref",
           expected:
-            "La requête garde le SHA. Le lien local pointe vers le checkout. Le lock garde la requête commitée (un lien n'est jamais verrouillé), et list affiche `overrides github:…#<sha>`.",
+            "La requête garde le SHA. Le lien local pointe vers le checkout. Le lock garde la requête commitée (un lien n'est jamais verrouillé), et status affiche `overrides github:…#<sha>`.",
           test(api) {
             const requested = findPlugin(readRequest(api.target), "git-workflow");
             const linked = findPlugin(readLocal(api.target), "git-workflow");
             const locked = findPlugin(readLock(api.target), "git-workflow");
-            const output = commandNamed(api, "list")?.stdout ?? "";
+            const output = commandNamed(api, "status")?.stdout ?? "";
             const override = `overrides ${TOOLBELT_SOURCE}#${api.sha}`;
             const ok =
               requested?.ref === api.sha &&
@@ -1195,10 +1179,10 @@ function buildSteps() {
       ],
     },
     {
-      id: "link-spec-no-sync",
-      action: "deck link <toolbelt>@spec-workflow --no-sync",
+      id: "link-spec-no-install",
+      action: "deck link <toolbelt>@spec-workflow --no-install",
       run(api) {
-        api.deck(["link", `${api.toolbelt}@spec-workflow`, "--no-sync"]);
+        api.deck(["link", `${api.toolbelt}@spec-workflow`, "--no-install"]);
       },
       checks: [
         {
@@ -1224,10 +1208,10 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-linked-spec",
-      action: "deck sync",
+      id: "install-linked-spec",
+      action: "deck install",
       run(api) {
-        api.deck(["sync"]);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -1284,10 +1268,10 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-prunes-unlinked-spec",
-      action: "deck sync",
+      id: "install-prunes-unlinked-spec",
+      action: "deck install",
       run(api) {
-        api.deck(["sync"]);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -1423,11 +1407,11 @@ function buildSteps() {
       ],
     },
     {
-      id: "sync-dirty-mcp",
-      action: "Modifier le skill dans le checkout sans commit, puis deck sync",
+      id: "install-dirty-mcp",
+      action: "Modifier le skill dans le checkout sans commit, puis deck install",
       run(api) {
         writeRel(api.fixture, "plugins/notes/skills/notes/SKILL.md", "# notes v2 dirty\n");
-        api.deck(["sync"]);
+        api.deck(["install"]);
       },
       checks: [
         {
@@ -1703,10 +1687,10 @@ function buildSteps() {
       ],
     },
     {
-      id: "doctor-healthy",
-      action: "deck doctor",
+      id: "status-healthy",
+      action: "deck status",
       run(api) {
-        api.deck(["doctor"]);
+        api.deck(["status"]);
       },
       checks: [
         {
@@ -1748,6 +1732,128 @@ function buildSteps() {
         },
       ],
     },
+    {
+      id: "profile-new-and-lock",
+      action: `deck profile new builder, puis deck add ${TOOLBELT_REPO}@nextjs-app-structure --profile builder`,
+      run(api) {
+        api.deck(["profile", "new", "builder"]);
+        api.deck(["add", pluginId("nextjs-app-structure"), "--profile", "builder"]);
+      },
+      checks: [
+        {
+          id: "locked-not-installed",
+          expected:
+            ".ai/builder a prompt.md, une requête et un lock qui pince nextjs-app-structure. Le profil n'est pas actif : le skill n'est pas installé, et la requête de base ne change pas.",
+          test(api) {
+            const add = commandNamed(api, "add");
+            const request = readJson(api.target, ".ai/builder/ai-plugin.json");
+            const lock = readJson(api.target, ".ai/builder/ai-plugin.lock.json");
+            const installed = has(api.target, ".claude/skills/nextjs-app-structure");
+            const base = pluginNames(readRequest(api.target));
+            const ok =
+              add?.exitCode === 0 &&
+              has(api.target, ".ai/builder/prompt.md") &&
+              isToolbeltRequest(findPlugin(request, "nextjs-app-structure"), "nextjs-app-structure") &&
+              Boolean(lockedSha(findPlugin(lock, "nextjs-app-structure"))) &&
+              !installed &&
+              !base.includes("nextjs-app-structure");
+            return { ok, actual: `exit=${add?.exitCode} installé=${installed} base=${base.join(",")} ${add?.stdout.trim()}` };
+          },
+        },
+      ],
+    },
+    {
+      id: "profile-use",
+      action: "deck profile use builder",
+      run(api) {
+        api.deck(["profile", "use", "builder"]);
+      },
+      checks: [
+        {
+          id: "base-plus-profile",
+          expected:
+            "Le skill du profil est installé, les plugins de base sont « up to date », .ai/current pointe vers builder, CLAUDE.md importe @.ai/current/prompt.md et la règle Cursor deck-profile.mdc existe. Le lock de base ne contient pas le plugin du profil.",
+          test(api) {
+            const command = lastCommand(api);
+            const installed = presence(api.target, skillRels("nextjs-app-structure"));
+            const claude = has(api.target, "CLAUDE.md") ? readText(api.target, "CLAUDE.md") : "";
+            const current = fs.readlinkSync(path.join(api.target, ".ai/current"));
+            const baseLock = pluginNames(readLock(api.target));
+            const ok =
+              command?.exitCode === 0 &&
+              installed.ok &&
+              /git-workflow .*\(up to date\)/.test(command.stdout) &&
+              current === "builder" &&
+              claude.includes("@.ai/current/prompt.md") &&
+              has(api.target, ".cursor/rules/deck-profile.mdc") &&
+              !baseLock.includes("nextjs-app-structure");
+            return { ok, actual: `exit=${command?.exitCode} ${installed.actual} current=${current} lockBase=${baseLock.join(",")}` };
+          },
+        },
+      ],
+    },
+    {
+      id: "profile-off",
+      action: "deck profile off",
+      run(api) {
+        api.deck(["profile", "off"]);
+      },
+      checks: [
+        {
+          id: "back-to-base",
+          expected: "Le skill du profil est retiré, ceux de base restent, .ai/current, la règle Cursor et la ligne d'import disparaissent.",
+          test(api) {
+            const command = lastCommand(api);
+            const gone = absence(api.target, skillRels("nextjs-app-structure"));
+            const kept = presence(api.target, skillRels("commit"));
+            const claude = has(api.target, "CLAUDE.md") ? readText(api.target, "CLAUDE.md") : "";
+            const ok =
+              command?.exitCode === 0 &&
+              gone.ok &&
+              kept.ok &&
+              !has(api.target, ".ai/current") &&
+              !has(api.target, ".cursor/rules/deck-profile.mdc") &&
+              !claude.includes("@.ai/current/prompt.md");
+            return { ok, actual: `exit=${command?.exitCode} ${gone.actual}; ${kept.actual}` };
+          },
+        },
+      ],
+    },
+    {
+      id: "deprecated-commands",
+      action: "deck sync, deck list, deck doctor (obsolètes)",
+      run(api) {
+        api.deck(["sync"]);
+        api.deck(["list"]);
+        api.deck(["doctor"]);
+      },
+      checks: [
+        {
+          id: "still-work-with-notice",
+          expected: "Les trois commandes quittent avec le code 0 et indiquent sur stderr la commande qui les remplace (install, status).",
+          test(api) {
+            const [sync, list, doctor] = ["sync", "list", "doctor"].map((name) => commandNamed(api, name));
+            const ok =
+              sync?.exitCode === 0 &&
+              sync.stderr.includes("use deck install") &&
+              list?.exitCode === 0 &&
+              list.stderr.includes("use deck status") &&
+              doctor?.exitCode === 0 &&
+              doctor.stderr.includes("use deck status");
+            return { ok, actual: [sync, list, doctor].map((c) => `${c?.argv[1]}=${c?.exitCode} ${c?.stderr.trim()}`).join(" | ") };
+          },
+        },
+        {
+          id: "unknown-option-refused",
+          expected: "Une option qu'une commande ne prend pas est refusée (deck status --frozen).",
+          test(api) {
+            const r = spawnSync(process.execPath, [api.deckPath, "status", "--frozen", "--project", api.target], { encoding: "utf8" });
+            const ok = r.status === 1 && r.stderr.includes("deck status does not take --frozen");
+            return { ok, actual: `exit=${r.status} ${r.stderr.trim()}` };
+          },
+        },
+      ],
+    },
   ];
 }
 
@@ -1758,6 +1864,7 @@ function createApi(target, sha, options) {
     target,
     sha,
     toolbelt: options.toolbelt,
+    deckPath: options.deck,
     commands,
     deck(args, project = target) {
       const result = spawnSync(process.execPath, [options.deck, ...args, "--project", project], {

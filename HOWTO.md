@@ -103,7 +103,6 @@ The `cli/` package is published as [`@pinkpuma/deck`](cli/README.md).
 **Consumer projects** — install plugins and skills into an app:
 
 ```bash
-npx @pinkpuma/deck init --project /path/to/app
 npx @pinkpuma/deck add owner/repo@plugin-name --ref v0.1.0 --project /path/to/app
 npx @pinkpuma/deck install --frozen --project /path/to/app
 
@@ -114,30 +113,23 @@ npx @pinkpuma/deck link /path/to/marketplace@plugin-name --project /path/to/app
 Each plugin is normalized under `.deck/plugins/<id>/`. Claude Code installs it natively
 from `.deck/` as a local marketplace (hooks and commands included); Cursor gets copies in
 `.cursor/` (skills, agents, commands, rules, support files, MCP in `.cursor/mcp.json`).
-`deck doctor` checks the whole chain and `deck outdated` shows what `deck update` would
+`deck status` checks the whole chain and `deck outdated` shows what `deck update` would
 move. `ai-plugin.json` lists what to install and
 `ai-plugin.lock.json` pins what it resolved to: commit both. `.deck/` and
 `ai-plugin.local.json` (links to checkouts, which win over the same id) stay local; deck
 lists them in an existing `.gitignore`. See [cli/README.md](cli/README.md).
 
-**Agent profiles** — switch between agent profiles (builder, tester, …) in a project
-with [`scripts/ai-profile`](scripts/ai-profile). Each profile is a folder under `.ai/`
-with a `prompt.md` and its own deck request and lock (`"hosts": off`, edited with
-`deck -C .ai/<name> add …`); `.ai/common/` holds plugins every profile gets.
+**Agent profiles** — switch between agent roles (builder, tester, …) in a project with
+`deck profile`. Each profile is a folder under `.ai/` with a `prompt.md` and its own
+request and lock, installed on top of the base:
 
 ```bash
-scripts/ai-profile new builder
-deck -C .ai/builder add anthropics/skills --skill pdf
-scripts/ai-profile enable builder   # then: new Claude session, reload the Cursor window
-scripts/ai-profile enable tester
-scripts/ai-profile off
+npx @pinkpuma/deck profile new builder --project /path/to/app
+npx @pinkpuma/deck add anthropics/skills --skill pdf --profile builder --project /path/to/app
+npx @pinkpuma/deck profile use builder --project /path/to/app
 ```
 
-`enable` merges `common` and the profile into the root `ai-plugin.json` and lock (both
-gitignored: they are generated) and runs `deck install --frozen`, which removes the
-previous profile's plugins and skips the shared ones. `CLAUDE.md` imports
-`@.ai/current/prompt.md`; Cursor gets `.cursor/rules/ai-profile.mdc`. Set `DECK` to run a
-deck other than the one on `PATH` (for example `DECK="node /path/to/cli/src/cli.mjs"`).
+See [cli/README.md](cli/README.md#profiles).
 
 **Author a new marketplace** — empty repo layout (no plugins yet):
 

@@ -20,10 +20,10 @@ and Cursor. `ai-plugin.json` is what you ask for, `ai-plugin.lock.json` is what 
 to — commit both, like `package.json` and `package-lock.json`.
 
 ```bash
-npx @pinkpuma/deck init
 npx @pinkpuma/deck add owner/marketplace-repo@plugin-name --ref v0.1.0
 npx @pinkpuma/deck add anthropics/skills --skill pdf
 npx @pinkpuma/deck install --frozen   # on another machine, in CI
+npx @pinkpuma/deck profile use builder # switch agent profile (see cli/README.md#profiles)
 
 # install a plugin you are editing, without changing ai-plugin.json
 npx @pinkpuma/deck link /path/to/marketplace@plugin-name
