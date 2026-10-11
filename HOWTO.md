@@ -100,24 +100,23 @@ side effects. Keep `SKILL.md` bodies under ~500 lines; shared rules go in
 
 The `cli/` package is published as [`@pinkpuma/deck`](cli/README.md).
 
-**Consumer projects** — install/sync plugins into an app:
+**Consumer projects** — install plugins and skills into an app:
 
 ```bash
 npx @pinkpuma/deck init --project /path/to/app
 npx @pinkpuma/deck add owner/repo@plugin-name --ref v0.1.0 --project /path/to/app
-npx @pinkpuma/deck sync --project /path/to/app
+npx @pinkpuma/deck install --frozen --project /path/to/app
 
 # while editing a plugin, install that working tree into an app:
 npx @pinkpuma/deck link /path/to/marketplace@plugin-name --project /path/to/app
 ```
 
-It copies skills and agents into both `.claude/` and `.cursor/`, and merges MCP servers
-into `.mcp.json` and `.cursor/mcp.json`. `ai-plugin.json` lists what to install.
-`ai-plugin.lock.json` records the resolved commit and the paths that sync wrote.
-`ai-plugin.local.json` is a gitignored link to a checkout; on sync it wins over the
-same plugin in `ai-plugin.json`. Commit `ai-plugin.json`. When a `.gitignore` already
-exists, writing the lock or a link appends `ai-plugin.lock.json` and
-`ai-plugin.local.json` to it.
+Each plugin is normalized under `.deck/plugins/<id>/`, then copied into both `.claude/`
+and `.cursor/` (skills, agents, commands, rules, support files) with MCP servers merged
+into `.mcp.json` and `.cursor/mcp.json`. `ai-plugin.json` lists what to install and
+`ai-plugin.lock.json` pins what it resolved to: commit both. `.deck/` and
+`ai-plugin.local.json` (links to checkouts, which win over the same id) stay local; deck
+lists them in an existing `.gitignore`. See [cli/README.md](cli/README.md).
 
 **Author a new marketplace** — empty repo layout (no plugins yet):
 

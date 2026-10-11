@@ -1,170 +1,181 @@
 # @pinkpuma/deck
 
-Install and sync Claude Code / Cursor marketplace plugins into a consumer project.
-`ai-plugin.json` is the request. `ai-plugin.local.json` is an optional gitignored link
-to a checkout you are editing. `ai-plugin.lock.json` is the resolved install.
+Install AI plugins and skills into a project, for Claude Code and Cursor, and reinstall
+exactly the same thing later — on another machine, in CI, or for an agent runner.
+
+| npm                 | deck                                                         | Commit |
+| ------------------- | ------------------------------------------------------------ | ------ |
+| `package.json`      | `ai-plugin.json` — what you ask for                          | yes    |
+| `package-lock.json` | `ai-plugin.lock.json` — commits, versions, digests, contents | yes    |
+| `node_modules/`     | `.deck/plugins/<id>/` — each plugin, normalized              | no     |
+| —                   | `.deck/state.json` — what deck wrote on this machine         | no     |
+| —                   | `ai-plugin.local.json` — links to working trees              | no     |
 
 ```bash
 npm i -g @pinkpuma/deck
 # or
 npx @pinkpuma/deck --help
-
-# from this package directory while developing
-npm link
-deck --help
 ```
 
 ## Commands
 
-| Command                                            | Effect                                                                                                                               |
-| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `init`                                             | Create an empty `ai-plugin.json`                                                                                                     |
-| `add owner/repo@plugin [--ref <tag\|branch\|sha>]` | Add the request and sync (use `--no-sync` to record the request without copying)                                                     |
-| `remove owner/repo@plugin`                         | Drop the request and delete installed files (`--keep-files` to leave the copies)                                                     |
-| `link <checkout>@<plugin>`                         | Install a plugin from a local checkout, including uncommitted files. Does not edit `ai-plugin.json`                                  |
-| `unlink owner/repo@plugin`                         | Drop that link and its installed files (`--keep-files` to leave the copies). If `ai-plugin.json` still requests it, restore that ref |
-| `sync`                                             | Re-install every requested plugin (committed and linked), refresh copies, and rewrite the lock                                       |
-| `list`                                             | Show requested plugins and, when synced, the resolved commit                                                                         |
-| `scaffold <name> --owner <name> [--dir <parent>]`  | Create a new marketplace repo under `<dir>/<name>` (default dir: cwd)                                                                |
+| Command                                                                                 | Effect                                                                         |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `init`                                                                                  | Create an empty `ai-plugin.json`                                               |
+| `add <source> [--ref] [--plugin] [--skill <name>]… [--path] [--id] [--sha256] [--no-sync]` | Add the request, resolve it, install it, and lock it                           |
+| `remove <id> [--keep-files]`                                                            | Drop the request, its normalized tree, its installed files, and its lock entry |
+| `install [--frozen]` (alias `sync`)                                                     | Make the project match `ai-plugin.json`, pinned by the lock                    |
+| `update [<id>…]`                                                                        | Resolve refs again (all, or the ids given) and rewrite the lock                |
+| `list`                                                                                  | Requests, their lock pin, and their components                                 |
+| `link <checkout>[@<plugin>] [--id] [--skill]… [--path]`                                 | Install a working tree, uncommitted files included. Not locked                 |
+| `unlink <id> [--keep-files]`                                                            | Drop the link; reinstall the committed request if there is one                 |
+| `scaffold <name> --owner <name> [--dir <parent>]`                                       | Create a new marketplace repo under `<dir>/<name>`                             |
 
-`--project <dir>` (or `-C`) scopes consumer commands (`init` / `add` / `remove` / `link` /
-`unlink` / `sync` / `list`) to that project root (default: cwd).
-`--no-agents-md` / `--agents-md` on `add`, `remove`, `link`, `unlink`, and `sync` set `writeAgentsMd` in
-the lock (default `true`).
+Common flags: `--project <dir>` (`-C`) scopes the command to a project root (default:
+cwd). `--force` lets copy mode replace a file deck did not write. `--no-agents-md` /
+`--agents-md` control the `AGENTS.md` skills block.
 
-`scaffold` is author-side: it writes `.claude-plugin/marketplace.json`, empty `plugins/`,
-`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. `--owner` is required and becomes
-`owner.name` in the marketplace manifest.
+## Sources
 
-## What gets copied
+| You type                          | Request                                                 |
+| --------------------------------- | ------------------------------------------------------- |
+| `owner/repo@plugin`               | `{ "source": "github:owner/repo", "plugin": "plugin" }` |
+| `owner/repo`                      | a single-plugin repository, or a repository of skills   |
+| `owner/repo --skill a --skill b`  | only those skills                                       |
+| `https://github.com/owner/repo`   | same as `owner/repo`                                    |
+| `git+https://gitlab.com/t/r.git#v1` | `{ "source": "git:https://gitlab.com/t/r.git", "ref": "v1" }` |
+| `git@host:team/repo.git`          | any git host over SSH                                   |
+| `npm:@scope/pkg@^2`               | `{ "source": "npm:@scope/pkg", "version": "^2" }`       |
+| `https://…/kit.zip` (or `.tar.gz`) | `{ "source": "archive:https://…/kit.zip" }`             |
 
-For each locked plugin, the CLI clones the GitHub marketplace at `ref`, resolves
-`plugins/<name>/` (via `.claude-plugin/marketplace.json` when present), then vendors:
+The id defaults to the plugin name (or the repository name); `--id` overrides it.
+Without `--ref`, deck takes the default branch and locks the commit it found.
 
-| Component                                                                       | Claude Code              | Cursor                   |
-| ------------------------------------------------------------------------------- | ------------------------ | ------------------------ |
-| Skills (`skills/*/SKILL.md`)                                                    | `.claude/skills/<name>/` | `.cursor/skills/<name>/` |
-| Agents (`agents/*.md`)                                                          | `.claude/agents/`        | `.cursor/agents/`        |
-| Other plugin files (`CONVENTIONS.md`, `scripts/`, `templates/`, `README.md`, …) | `.claude/plugins/<id>/`  | `.cursor/plugins/<id>/`  |
-| MCP (`mcp.json` / `.mcp.json` / manifest `mcpServers`)                          | `.mcp.json`              | `.cursor/mcp.json`       |
+Inside a fetched source, deck finds the plugin the way Claude Code and Cursor do:
 
-Relative links in an installed skill that point at those other plugin files are rewritten
-to the per-plugin directory, so two plugins can both ship a `CONVENTIONS.md`.
+- `.claude-plugin/marketplace.json` or `.cursor-plugin/marketplace.json`, with every
+  Claude Code plugin source: relative path (and `metadata.pluginRoot` bare names),
+  `github`, `url`, `git-subdir`, `npm`, and `archive`. A source object is fetched in turn
+  and its own commit is locked as `nested`. `command` sources are refused.
+- `strict` semantics: an entry without `plugin.json` is the manifest (e.g. the skill
+  lists of `anthropics/skills`); a `strict: false` entry that declares components next
+  to a `plugin.json` is a conflict.
+- Custom component paths in `.claude-plugin/plugin.json` or `.cursor-plugin/plugin.json`
+  (`skills`, `agents`, `commands`, `rules`, `hooks`, `mcpServers`).
+- No marketplace: `plugins/<name>/`, a plugin at the root, a `skills/*/SKILL.md`
+  repository, or a single `SKILL.md` at the root.
 
-Sync replaces those paths. Remove deletes every path recorded in the lock for that
-plugin, including a file that was already there before the first install.
+## What gets installed
 
-Optional `skills/<name>/DEFAULT_USAGE.md` is not copied into the skill directory. Sync
-stores its body on the lock entry as `agentsSnippets` and, when `AGENTS.md` already
-exists and `writeAgentsMd` is true, rewrites a marked `## Skills` block from those
-snippets. Deck never creates `AGENTS.md`. Pass `--no-agents-md` (or set
-`writeAgentsMd: false` in the lock) to skip that rewrite and remove a previous block.
+Every plugin is first normalized under `.deck/plugins/<id>/`: `skills/`, `agents/`,
+`commands/`, `rules/`, `hooks/hooks.json`, `mcp.json`, its support files, and generated
+`.claude-plugin/plugin.json`, `.cursor-plugin/plugin.json`, and root `plugin.json`. That
+tree loads as is with `claude --plugin-dir` and `cursor-agent --plugin-dir`.
+`.deck/.claude-plugin/marketplace.json` lists every installed plugin as a local
+marketplace.
 
-`add` writes `ai-plugin.json` first, then copies and updates the lock. `--no-sync`
-writes only the request. `sync` deletes plugins that are no longer requested by
-`ai-plugin.json` or `ai-plugin.local.json`. `remove --keep-files` drops both entries
-and leaves the copied files. `link` writes `ai-plugin.local.json` only.
+Then each host is activated. `ai-plugin.json` can set a mode per host:
 
-MCP server keys are namespaced (`deck__owner_repo__plugin__server`) so sync does not
-clobber unrelated servers. The lock records those keys so remove can drop them.
+```json
+{ "plugins": [], "hosts": { "claude": "copy", "cursor": "copy" } }
+```
+
+| Mode   | Effect                                                     |
+| ------ | ---------------------------------------------------------- |
+| `copy` | default — vendor components into the host's project paths |
+| `off`  | install nothing for that host                              |
+
+Copy mode writes:
+
+| Component                      | Claude Code                        | Cursor                             |
+| ------------------------------ | ---------------------------------- | ---------------------------------- |
+| Skills                         | `.claude/skills/<name>/`           | `.cursor/skills/<name>/`           |
+| Agents (nested folders kept)   | `.claude/agents/`                  | `.cursor/agents/`                  |
+| Commands                       | `.claude/commands/<id>/`           | `.cursor/commands/<id>/`           |
+| Rules                          | —                                  | `.cursor/rules/<id>/`              |
+| Support files                  | `.claude/plugins/<id>/`            | `.cursor/plugins/<id>/`            |
+| MCP (keys `deck__<id>__<server>`) | `.mcp.json`                     | `.cursor/mcp.json`                 |
+
+Relative links from a skill to a support file are rewritten to the per-plugin directory.
+`${CLAUDE_PLUGIN_ROOT}`, `${CURSOR_PLUGIN_ROOT}`, and `${PLUGIN_ROOT}` are replaced with
+that directory in skills and MCP servers. Hooks are not active in copy mode; deck says
+so. Copy mode refuses to write a path another plugin owns, or one deck did not write
+(`--force` replaces the latter).
+
+Optional `skills/<name>/DEFAULT_USAGE.md` is not copied. Its body is stored in the lock
+as `agentsSnippets` and, when `AGENTS.md` exists and `writeAgentsMd` is true, written to
+a marked `## Skills` block. Deck never creates `AGENTS.md`.
 
 ## ai-plugin.json
-
-The request, committed with the project:
 
 ```json
 {
   "plugins": [
+    { "id": "impeccable", "source": "github:pbakaus/impeccable", "plugin": "impeccable", "ref": "v4.5.2" },
+    { "id": "doc-skills", "source": "github:anthropics/skills", "plugin": "document-skills" },
+    { "id": "fmt", "source": "npm:@acme/formatter", "version": "^2" }
+  ]
+}
+```
+
+Entries written by deck 0.6 and earlier (`{ marketplace, name, ref }`) are read and
+rewritten in this shape.
+
+## ai-plugin.lock.json
+
+Format 3, committed. One entry per id: the request, what it resolved to, the integrity of
+the normalized tree, its components, and its `AGENTS.md` snippets. Nothing in it depends
+on the machine.
+
+```json
+{
+  "lockfileVersion": 3,
+  "writeAgentsMd": true,
+  "plugins": [
     {
-      "marketplace": "owner/marketplace-repo",
-      "name": "plugin-name",
-      "ref": "v0.1.0"
+      "id": "impeccable",
+      "request": { "id": "impeccable", "source": "github:pbakaus/impeccable", "plugin": "impeccable" },
+      "resolved": { "type": "git", "url": "https://github.com/pbakaus/impeccable.git", "sha": "c63b8dd7…" },
+      "integrity": "sha256-…",
+      "components": { "skills": ["impeccable"], "agents": ["…"], "commands": [], "rules": [], "hooks": true, "mcp": [] },
+      "agentsSnippets": []
     }
   ]
 }
 ```
 
-`ref` is the tag, branch, or commit you asked for.
+`install` keeps each pin while the request is unchanged; `update` moves it.
+`install --frozen` refuses a request the lock does not pin, a lock entry nothing
+requests, and a normalized tree whose integrity differs — use it in CI.
+
+A format 2 lock (deck 0.6) is converted on the next `install`; the paths it recorded move
+to `.deck/state.json` so the files an older deck wrote are replaced. When a `.gitignore`
+exists, deck lists `.deck/` and `ai-plugin.local.json` in it and removes the
+`ai-plugin.lock.json` line an older deck added.
 
 ## Developing a plugin
 
-`link` installs one plugin from a local marketplace checkout, including files that are
-not committed yet. The checkout's `origin` must be the GitHub `owner/repo` used as the
-marketplace id. A link is stored in `ai-plugin.local.json` (gitignored, same shape as
-`ai-plugin.json` plus `from`). It does not change `ai-plugin.json`.
+`link` installs a local checkout, uncommitted files included, without touching
+`ai-plugin.json` or the lock. The link lives in `ai-plugin.local.json` and replaces a
+committed request with the same id.
 
 ```bash
 deck link /path/to/pinkpuma-toolbelt@nextjs-app-structure --project /path/to/app
 # edit the skill, then pick up the working tree again:
-deck sync --project /path/to/app
-deck unlink tilap/pinkpuma-toolbelt@nextjs-app-structure --project /path/to/app
+deck install --project /path/to/app
+deck unlink nextjs-app-structure --project /path/to/app
 ```
 
-On `sync`, a linked plugin replaces a committed request with the same marketplace and
-name. `unlink` removes that override. If `ai-plugin.json` still requests the plugin,
-`unlink` installs that ref again.
-
-`DECK_LOCAL_<owner>__<repo>` remains the switch for scripts and the toolbelt scenario in [`integration/`](integration/README.md). That scenario is not part of `npm test`. `link` is the command for day-to-day work on a plugin.
-
-## ai-plugin.lock.json
-
-The resolved install, local to the machine. `resolved` is the commit SHA `ref`
-pointed at when sync ran. A linked plugin also records `source`, the absolute path
-of the checkout. `paths` and `mcpKeys` are everything that sync wrote for
-that plugin. `agentsSnippets` holds each skill's `DEFAULT_USAGE.md` body for the
-`AGENTS.md` block. `writeAgentsMd` (default `true`) controls whether sync writes that
-block. Set it to `false`, or pass `--no-agents-md`, to leave `AGENTS.md` alone and
-strip a previous marked block.
-
-When the project already has a `.gitignore`, writing the lock or a link appends
-`ai-plugin.lock.json` and `ai-plugin.local.json` to it (deck does not create
-`.gitignore`). Commit `ai-plugin.json`. Leave the lock and the local file uncommitted.
-Optionally gitignore `.claude/skills`, `.cursor/skills`, agents,
-plugin asset directories, and generated MCP keys — or commit those copies for offline
-clones.
-
-```json
-{
-  "lockfileVersion": 2,
-  "writeAgentsMd": true,
-  "plugins": [
-    {
-      "marketplace": "owner/marketplace-repo",
-      "name": "plugin-name",
-      "ref": "v0.1.0",
-      "resolved": "0123456789abcdef0123456789abcdef01234567",
-      "paths": [".claude/skills/plugin-name", ".cursor/skills/plugin-name"],
-      "mcpKeys": {},
-      "agentsSnippets": [
-        {
-          "skill": "plugin-name",
-          "body": "- **Example.** If the `plugin-name` skill is available, …"
-        }
-      ]
-    }
-  ]
-}
-```
-
-`lockfileVersion` is the **format** version of this file (not a plugin semver). The CLI
-refuses unknown versions.
-
-Cache clones live under `~/.cache/pinkpuma-deck/` (override with `DECK_CACHE`).
-
-Scripts and integration tests can still install from a local checkout with
-`DECK_LOCAL_<owner>__<repo>`. The current branch name and `HEAD` use the working tree,
-including uncommitted files. Any other ref is checked out from a local clone. For
-day-to-day editing, use `link` instead.
-
-```bash
-DECK_LOCAL_tilap__pinkpuma-toolbelt=/path/to/pinkpuma-toolbelt \
-  deck add tilap/pinkpuma-toolbelt@git-workflow
-```
+Caches live under `~/.cache/pinkpuma-deck/` (override with `DECK_CACHE`).
+`DECK_LOCAL_<owner>__<repo>` points a GitHub source at a local checkout for scripts and
+integration tests: the current branch and `HEAD` use the working tree, any other ref is
+checked out from a local clone.
 
 ## Auth
 
-Uses the machine’s existing `git` access to GitHub (SSH agent, `gh`, credential helper).
-No tokens are stored by this CLI.
+Uses the machine’s existing `git` access (SSH agent, `gh`, credential helper) and npm
+configuration. No tokens are stored by this CLI. npm packages are packed with
+`--ignore-scripts`.
 
 ## Release
 
