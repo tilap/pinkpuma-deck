@@ -221,6 +221,29 @@ export function copyInstall(projectRoot, id, pluginDir, options) {
   return { paths: [...new Set(paths)], mcpKeys, warnings };
 }
 
+/**
+ * The paths copy mode writes for a plugin, from its lock entry's components:
+ * what `copyInstall` would claim, plus its support-file folder whether or not
+ * the plugin has support files. Known without installing, so a plugin of a
+ * profile that is not active has its paths too.
+ * @param {string} id
+ * @param {{ skills?: string[], agents?: string[], commands?: string[], rules?: string[] }} components
+ * @param {Array<keyof typeof HOSTS>} hostNames hosts in copy mode
+ * @returns {string[]}
+ */
+export function plannedCopyPaths(id, components, hostNames) {
+  const paths = [];
+  for (const hostName of hostNames) {
+    const host = HOSTS[hostName];
+    paths.push(pluginAssetRel(host, id));
+    for (const skill of components?.skills ?? []) paths.push(path.join(host.skills, skill));
+    for (const rel of components?.agents ?? []) paths.push(path.join(host.agents, rel));
+    for (const rel of components?.commands ?? []) paths.push(path.join(host.commands, id, rel));
+    if (host.rules) for (const rel of components?.rules ?? []) paths.push(path.join(host.rules, id, rel));
+  }
+  return paths;
+}
+
 /** Delete the files and MCP keys a state entry recorded. */
 export function removeInstalledFiles(projectRoot, record) {
   const removed = [];

@@ -1,5 +1,5 @@
 import { rewriteAgentsMd } from "./agents.mjs";
-import { writeGitignoreBlock } from "./gitignore.mjs";
+import { copiesToIgnore, writeGitignoreBlock } from "./gitignore.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -165,16 +165,23 @@ function deactivate(projectRoot, id, state) {
 }
 
 /**
- * The paths copy mode wrote, to list in deck's .gitignore block, unless
+ * The copies deck's .gitignore block lists (see `copiesToIgnore`), unless
  * ai-plugin.json says `"gitignoreCopies": false` (the project commits them).
  */
 function gitignoredCopies(projectRoot, state) {
-  let commit = false;
+  let doc = null;
   try {
-    commit = readPlugins(projectRoot)?.gitignoreCopies === false;
+    doc = readPlugins(projectRoot);
   } catch {}
-  if (commit) return [];
-  return Object.values(state.plugins).flatMap((entry) => entry.paths ?? []);
+  return copiesToIgnore(projectRoot, state, doc, hostModes(doc));
+}
+
+/**
+ * Rewrite deck's .gitignore block from the locks on disk: after a profile that
+ * is not active gained or lost a pin, which installs nothing.
+ */
+export function refreshGitignore(projectRoot) {
+  writeGitignoreBlock(projectRoot, { copies: gitignoredCopies(projectRoot, readState(projectRoot)) });
 }
 
 /**

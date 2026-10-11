@@ -1,12 +1,17 @@
 import fs from "node:fs";
 import path from "node:path";
-import { CURRENT_LINK_PATH, CURSOR_RULE_PATH, INSTALLED_DIR, LOCAL_PLUGINS_FILE, LOCK_FILE } from "./paths.mjs";
+import { plannedCopyPaths } from "./hosts/copy.mjs";
+import { readLockfile } from "./lockfile.mjs";
+import { CURRENT_LINK_PATH, CURSOR_RULE_PATH, HOSTS, INSTALLED_DIR, LOCAL_PLUGINS_FILE, LOCK_FILE } from "./paths.mjs";
+import { listProfiles, profileDir } from "./project.mjs";
 
 /**
  * One block of .gitignore belongs to deck, between two markers, and is
  * rewritten whole: the local files, and (unless the project commits them) every
- * path copy mode wrote in .claude/ and .cursor/. Lines outside the block are
- * never touched. Like npm with node_modules: commit the intent, not the output.
+ * path copy mode writes in .claude/ and .cursor/ — for the base and for every
+ * profile, active or not, so switching profiles never changes a committed file.
+ * Lines outside the block are never touched. Like npm with node_modules: commit
+ * the intent, not the output.
  */
 
 const GITIGNORE = ".gitignore";
@@ -15,6 +20,37 @@ export const BLOCK_END = "# <<< @pinkpuma/deck";
 
 /** Local files every project ignores. */
 export const LOCAL_ENTRIES = [`${INSTALLED_DIR}/`, CURRENT_LINK_PATH, LOCAL_PLUGINS_FILE, CURSOR_RULE_PATH];
+
+/**
+ * The copies deck's block ignores: every path copy mode writes for each plugin
+ * the base or any profile pins (from the committed locks), plus what this
+ * machine actually wrote (a link, or Claude falling back to copy mode).
+ * Nothing when the project commits its copies.
+ * @param {string} projectRoot
+ * @param {import("./state.mjs").State} state
+ * @param {{ gitignoreCopies?: boolean } | null} doc the base ai-plugin.json
+ * @param {Record<string, string>} modes declared host modes (see hostModes)
+ * @returns {string[]}
+ */
+export function copiesToIgnore(projectRoot, state, doc, modes) {
+  if (doc?.gitignoreCopies === false) return [];
+  // Every host that is not off: a native host falls back to copy mode on a
+  // machine without its CLI, and that machine must not change a committed
+  // file. Ignoring a path nothing wrote costs nothing.
+  const hosts = Object.keys(HOSTS).filter((name) => modes[name] !== "off");
+  const locks = [projectRoot, ...listProfiles(projectRoot).map((name) => profileDir(projectRoot, name))];
+  const planned = locks.flatMap((root) => {
+    let lock = null;
+    try {
+      lock = readLockfile(root);
+    } catch {
+      // An unreadable lock is reported by `deck status`; it ignores nothing here.
+    }
+    return (lock?.plugins ?? []).flatMap((entry) => plannedCopyPaths(entry.id, entry.components, hosts));
+  });
+  const written = Object.values(state.plugins).flatMap((entry) => entry.paths ?? []);
+  return [...planned, ...written];
+}
 
 /** The current block's lines (markers excluded), or null when there is none. */
 export function readBlock(projectRoot) {
