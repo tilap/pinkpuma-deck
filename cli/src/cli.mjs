@@ -1,151 +1,159 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { doctor } from "./doctor.mjs";
-import { installAll, installOne, uninstallOne } from "./install.mjs";
+import { installAll, installOne, lockOnly, pinFor, uninstallOne } from "./install.mjs";
+import { readLockfile, removeLockEntry, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
 import { isOutdated, outdated } from "./outdated.mjs";
-import { emptyLockfile, readLockfile, setWriteAgentsMd } from "./lockfile.mjs";
 import { LOCAL_PLUGINS_FILE, LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
 import {
   addLocalPlugin,
   addPlugin,
   deleteLocalPlugins,
   emptyLocalPlugins,
+  emptyPlugins,
   ensurePlugins,
   parseLinkSpec,
   readLocalPlugins,
   readPlugins,
-  readRequestedPlugins,
   removeLocalPlugin,
   removePlugin,
   writeLocalPlugins,
   writePlugins,
 } from "./plugins.mjs";
+import { clearProfile, createProfile, useProfile } from "./profiles.mjs";
+import { PROFILES_DIR, listProfiles, loadProject, profileDir } from "./project.mjs";
 import { scaffoldMarketplace } from "./scaffold.mjs";
 import { defaultId, normalizeRequest, parseAddSpec } from "./sources/spec.mjs";
+import { status } from "./status.mjs";
 
-function usage() {
-  return `deck (@pinkpuma/deck) — install AI plugins and skills into a project, for Claude Code and Cursor
+const USAGE = `deck — install AI plugins and skills into a project, for Claude Code and Cursor
 
 Usage:
-  deck init
-  deck add <source> [--ref <ref>] [--plugin <name>] [--skill <name>]… [--path <dir>] [--id <id>] [--sha256 <hex>] [--no-sync]
-  deck remove <id> [--keep-files]
-  deck install [--frozen]          (alias: sync)
-  deck update [<id>…]
-  deck list
+  deck add <source> [--skill <name>]… [--ref <ref>] [--profile <name>]
+  deck remove <id> [--profile <name>]
+  deck install [--frozen]
+  deck update [<id>…] [--profile <name>]
+  deck status
   deck outdated
-  deck doctor
-  deck link <checkout>[@<plugin>] [--id <id>] [--skill <name>]… [--path <dir>]
-  deck unlink <id> [--keep-files]
-  deck scaffold <name> --owner <name> [--dir <parent>]
+  deck link <folder>[@<plugin>] [--skill <name>]…
+  deck unlink <id>
+  deck profile new|use|off|list [<name>]
 
-Sources:
-  owner/repo@plugin        a plugin from a GitHub marketplace
-  owner/repo               a single-plugin repository, or a repository of skills
-  git+<url>[#ref]          any git host (also git@host:owner/repo.git)
-  npm:<package>[@version]  an npm package
-  https://….zip|.tar.gz    an archive
+Sources (add):
+  owner/repo@plugin          a plugin from a GitHub marketplace
+  owner/repo                 a single-plugin repository, or a repository of skills
+  git+<url>[#ref]@plugin     any git host (also git@host:owner/repo.git)
+  npm:<package>[@version]    an npm package
+  https://….zip | .tar.gz    an archive
 
-Hosts (ai-plugin.json "hosts"): claude = native (default, via the claude CLI) | copy | off
-                                cursor = copy (default) | off
+Options for every command:
+  -C, --project <dir>   project root (default: current directory)
+  --force               replace files that deck did not write
+  -h, --help
 
-Common flags: --project <dir> (-C), --force (replace files deck did not write),
-              --no-agents-md / --agents-md
+Advanced options:
+  add       --id <id>  --path <dir in source>  --sha256 <hex>  --no-install
+  remove    --keep-files     (unlink too)
+  link      --id <id>  --path <dir>  --no-install
 
 Files:
-  ${PLUGINS_FILE}        what you ask for (commit it)
-  ${LOCK_FILE}   what it resolved to: commits, versions, digests (commit it)
-  ${LOCAL_PLUGINS_FILE}  links to working trees (local only)
-  .deck/                 normalized plugins and local state (local only)
+  ai-plugin.json, ai-plugin.lock.json          the base: what every profile gets (commit both)
+  .ai/<name>/prompt.md, ai-plugin.json, lock   a profile, added on top when active (commit)
+  .ai/current, ai-plugin.local.json, .deck/    local only
+
+Settings in ai-plugin.json:
+  "hosts": { "claude": "native" | "copy" | "off", "cursor": "copy" | "off" }
+  "agentsMd": false        do not write the Skills block in AGENTS.md
 `;
+
+const VALUE_FLAGS = new Set(["ref", "profile", "id", "path", "sha256", "plugin", "owner", "dir"]);
+const BOOL_FLAGS = new Set(["frozen", "force", "keep-files", "no-install", "no-sync", "no-agents-md", "agents-md", "help"]);
+const GLOBAL_FLAGS = ["force", "help", "no-agents-md", "agents-md"];
+
+/** Flags each command takes, besides the global ones. */
+const COMMANDS = {
+  add: ["ref", "skill", "profile", "id", "path", "sha256", "no-install", "plugin", "no-sync"],
+  remove: ["profile", "keep-files"],
+  install: ["frozen"],
+  update: ["profile"],
+  status: [],
+  outdated: [],
+  link: ["id", "skill", "path", "no-install", "no-sync"],
+  unlink: ["keep-files"],
+  profile: [],
+  // Deprecated commands, kept for one version.
+  init: [],
+  sync: ["frozen"],
+  apply: ["frozen"],
+  list: [],
+  doctor: [],
+  scaffold: ["owner", "dir"],
+};
+
+function deprecated(message) {
+  console.error(`deck: ${message}`);
 }
 
 function parseArgs(argv) {
-  const args = {
-    _: [],
-    project: process.cwd(),
-    dir: process.cwd(),
-    sync: true,
-    keepFiles: false,
-    frozen: false,
-    force: false,
-    skills: [],
-    writeAgentsMd: undefined,
-  };
-  const value = (i, flag) => {
-    const v = argv[i];
-    if (v === undefined || v.startsWith("--")) throw new Error(`${flag} needs a value`);
-    return v;
-  };
+  const args = { _: [], flags: new Map(), skills: [], project: process.cwd() };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    switch (a) {
-      case "--project":
-      case "-C":
-        args.project = path.resolve(value(++i, a));
-        break;
-      case "--dir":
-        args.dir = path.resolve(value(++i, a));
-        break;
-      case "--owner":
-        args.owner = argv[++i] ?? "";
-        break;
-      case "--ref":
-      case "--plugin":
-      case "--path":
-      case "--id":
-      case "--sha256":
-        args[a.slice(2)] = value(++i, a);
-        break;
-      case "--skill":
-        args.skills.push(value(++i, a));
-        break;
-      case "--no-sync":
-        args.sync = false;
-        break;
-      case "--keep-files":
-        args.keepFiles = true;
-        break;
-      case "--frozen":
-        args.frozen = true;
-        break;
-      case "--force":
-        args.force = true;
-        break;
-      case "--no-agents-md":
-        args.writeAgentsMd = false;
-        break;
-      case "--agents-md":
-        args.writeAgentsMd = true;
-        break;
-      case "--help":
-      case "-h":
-        args.help = true;
-        break;
-      default:
-        if (a.startsWith("-")) throw new Error(`Unknown flag: ${a}`);
-        args._.push(a);
+    if (a === "-C" || a === "--project") {
+      const v = argv[++i];
+      if (!v) throw new Error(`${a} needs a directory`);
+      args.project = path.resolve(v);
+      continue;
+    }
+    if (a === "-h") {
+      args.flags.set("help", true);
+      continue;
+    }
+    if (!a.startsWith("--")) {
+      if (a.startsWith("-")) throw new Error(`Unknown option: ${a}`);
+      args._.push(a);
+      continue;
+    }
+    const name = a.slice(2);
+    if (name === "skill") {
+      const v = argv[++i];
+      if (v === undefined || v.startsWith("--")) throw new Error("--skill needs a value");
+      args.skills.push(v);
+      args.flags.set("skill", true);
+    } else if (VALUE_FLAGS.has(name)) {
+      const v = argv[++i];
+      if (v === undefined || (v.startsWith("--") && name !== "owner")) throw new Error(`--${name} needs a value`);
+      args.flags.set(name, v);
+    } else if (BOOL_FLAGS.has(name)) {
+      args.flags.set(name, true);
+    } else {
+      throw new Error(`Unknown option: ${a}`);
     }
   }
   return args;
 }
 
-/** `remove owner/repo@plugin` (deck <= 0.6) still works: the id is the plugin name. */
+/** Refuse an option the command does not take, instead of ignoring it. */
+function checkFlags(cmd, args) {
+  const allowed = new Set([...(COMMANDS[cmd] ?? []), ...GLOBAL_FLAGS]);
+  for (const name of args.flags.keys()) {
+    if (!allowed.has(name)) throw new Error(`deck ${cmd} does not take --${name}`);
+  }
+}
+
+/** `owner/repo@plugin` (deck <= 0.6) still names a plugin by its id. */
 function idFromArg(arg) {
   const legacy = arg.match(/^[\w.-]+\/[\w.-]+@([^@/]+)$/);
   return legacy ? legacy[1] : arg;
 }
 
-function loadLock(root, writeAgentsMd) {
-  const lock = readLockfile(root) ?? emptyLockfile();
-  return writeAgentsMd === undefined ? lock : setWriteAgentsMd(lock, writeAgentsMd);
-}
-
 function describe(entry) {
   const r = entry.resolved;
   const where =
-    r.type === "git" ? r.sha.slice(0, 12) : r.type === "npm" ? `${r.package}@${r.version}` : r.type === "archive" ? r.sha256.slice(0, 12) : r.sha?.slice(0, 12);
+    r.type === "git" || r.type === "local"
+      ? String(r.sha).slice(0, 12)
+      : r.type === "npm"
+        ? `${r.package}@${r.version}`
+        : String(r.sha256).slice(0, 12);
   const c = entry.components;
   const parts = [
     `skills=${c.skills.length}`,
@@ -163,188 +171,325 @@ function printResult({ entry, warnings = [], linked, skipped }) {
   for (const warning of warnings) console.log(`    ! ${warning}`);
 }
 
-async function main() {
-  const args = parseArgs(process.argv.slice(2));
-  if (args.help || args._.length === 0) {
-    console.log(usage());
-    process.exit(args.help ? 0 : 1);
+/** The folder whose ai-plugin.json a command edits: the base, or a profile. */
+function targetDir(root, profile) {
+  if (!profile) return root;
+  const dir = profileDir(root, profile);
+  if (!fs.existsSync(path.join(dir, PLUGINS_FILE))) {
+    throw new Error(`No profile "${profile}". Create it with: deck profile new ${profile}`);
+  }
+  return dir;
+}
+
+async function install(root, options = {}) {
+  const project = loadProject(root);
+  if (!project.exists) throw new Error(`No ${PLUGINS_FILE}. Run deck add <source>.`);
+  const label = project.profile ? ` (profile ${project.profile})` : "";
+  if (project.doc.plugins.length > 0) {
+    console.log(`${options.update ? "Updating" : "Installing"} ${project.doc.plugins.length} plugin(s)${label}…`);
+  }
+  const { results, removed } = await installAll(root, project.doc, project.lock, {
+    ...options,
+    saveLock: project.saveLock,
+  });
+  for (const id of removed) console.log(`  - ${id} (no longer requested)`);
+  for (const result of results) printResult(result);
+  if (project.doc.plugins.length === 0) console.log(`Nothing requested${label}.`);
+}
+
+/** Pin requests of a profile that is not active, without installing them. */
+async function lockProfile(root, profile, requests, { update = false } = {}) {
+  const dir = profileDir(root, profile);
+  let lock = readLockfile(dir) ?? { lockfileVersion: 3, writeAgentsMd: true, plugins: [] };
+  for (const request of requests) {
+    const entry = await lockOnly(request, pinFor(lock, request, update));
+    lock = upsertLockEntry(lock, entry);
+    console.log(`  ${describe(entry)}  (locked; profile ${profile} is not active)`);
+  }
+  writeLockfile(dir, lock);
+}
+
+async function cmdAdd(root, args, rest) {
+  const profile = args.flags.get("profile");
+  if (args.flags.has("plugin")) deprecated("--plugin is deprecated: write <source>@<plugin>.");
+  if (args.flags.has("no-sync")) deprecated("--no-sync is deprecated: use --no-install.");
+  const request = parseAddSpec(rest[0], {
+    ref: args.flags.get("ref"),
+    plugin: args.flags.get("plugin"),
+    path: args.flags.get("path"),
+    id: args.flags.get("id"),
+    sha256: args.flags.get("sha256"),
+    skills: args.skills,
+  });
+  const dir = targetDir(root, profile);
+  const doc = addPlugin(readPlugins(dir) ?? emptyPlugins(), request);
+  const where = profile ? `profile ${profile}` : PLUGINS_FILE;
+
+  if (args.flags.has("no-install") || args.flags.has("no-sync")) {
+    writePlugins(dir, doc);
+    console.log(`Added ${request.id} to ${where} (not installed)`);
+    return;
   }
 
+  const project = loadProject(root);
+  const owner = project.owner.get(request.id);
+  const side = profile ?? "base";
+  if (owner && owner !== side) {
+    throw new Error(`"${request.id}" is already requested by ${owner === "base" ? PLUGINS_FILE : `profile ${owner}`}.`);
+  }
+
+  if (profile && profile !== project.profile) {
+    // Like npm install: the request is written only once it resolved.
+    await lockProfile(root, profile, [request]);
+    writePlugins(dir, doc);
+    console.log(`Added ${request.id} to ${where}. It is installed when the profile is active: deck profile use ${profile}`);
+    return;
+  }
+
+  project.owner.set(request.id, side);
+  const result = await installOne(root, project.doc, request, project.lock, {
+    force: args.flags.has("force"),
+    saveLock: project.saveLock,
+  });
+  writePlugins(dir, doc);
+  console.log(`Added ${request.id} to ${where}:`);
+  printResult(result);
+}
+
+async function cmdRemove(root, args, rest) {
+  if (!rest[0]) throw new Error("remove needs a plugin id");
+  const id = idFromArg(rest[0]);
+  const profile = args.flags.get("profile");
+  const dir = targetDir(root, profile);
+  const doc = readPlugins(dir);
+  if (!doc) throw new Error(`No ${PLUGINS_FILE}${profile ? ` in profile ${profile}` : ""}`);
+  const next = removePlugin(doc, id);
+  const project = loadProject(root);
+
+  if (profile && profile !== project.profile) {
+    writePlugins(dir, next);
+    const lock = readLockfile(dir);
+    if (lock) writeLockfile(dir, removeLockEntry(lock, id));
+    console.log(`Removed ${id} from profile ${profile}`);
+    return;
+  }
+  writePlugins(dir, next);
+  uninstallOne(root, id, project.lock, { keepFiles: args.flags.has("keep-files"), saveLock: project.saveLock });
+  console.log(`Removed ${id}`);
+}
+
+async function cmdUpdate(root, args, rest) {
+  const ids = rest.map(idFromArg);
+  const profile = args.flags.get("profile");
+  const active = loadProject(root).profile;
+  if (profile && profile !== active) {
+    const doc = readPlugins(targetDir(root, profile)) ?? emptyPlugins();
+    const requests = doc.plugins.filter((p) => ids.length === 0 || ids.includes(p.id));
+    console.log(`Updating ${requests.length} plugin(s) of profile ${profile}…`);
+    await lockProfile(root, profile, requests, { update: true });
+    return;
+  }
+  await install(root, { update: ids.length > 0 ? ids : true, force: args.flags.has("force") });
+}
+
+function cmdStatus(root) {
+  const { profile, rows, findings } = status(root);
+  const profiles = listProfiles(root);
+  if (profile) console.log(`Profile: ${profile} (${PROFILES_DIR}/${profile})`);
+  else if (profiles.length > 0) console.log(`Profile: none (${profiles.join(", ")} available: deck profile use <name>)`);
+  if (rows.length === 0) console.log("(no plugins)");
+  for (const row of rows) {
+    const what = [row.source, row.ref && `#${row.ref}`].filter(Boolean).join("");
+    const over = row.overrides
+      ? `, overrides ${row.overrides.source}${row.overrides.ref ? `#${row.overrides.ref}` : ""}`
+      : "";
+    console.log(`${row.id}  [${row.from}${over}]  ${what}`);
+    if (row.entry && !row.linked) console.log(`  locked: ${describe(row.entry)}`);
+  }
+  const mark = { error: "✖", warn: "!", ok: "✔" };
+  for (const f of findings) console.log(`${mark[f.level]} ${f.id ? `${f.id}: ` : ""}${f.message}`);
+  if (findings.some((f) => f.level === "error")) process.exitCode = 1;
+}
+
+function cmdOutdated(root) {
+  const rows = outdated(root);
+  if (rows.length === 0) {
+    console.log("(nothing locked)");
+    return;
+  }
+  const table = [["id", "type", "current", "wanted", "latest", ""]].concat(
+    rows.map((r) => [r.id, r.type, r.current, r.wanted ?? "-", r.latest ?? "-", r.note ?? ""]),
+  );
+  const widths = table[0].map((_, i) => Math.max(...table.map((row) => String(row[i]).length)));
+  for (const row of table) console.log(row.map((cell, i) => String(cell).padEnd(widths[i])).join("  ").trimEnd());
+  if (rows.some(isOutdated)) process.exitCode = 1;
+}
+
+async function cmdLink(root, args, rest) {
+  if (!rest[0]) throw new Error("link needs <folder>[@<plugin>]");
+  if (args.flags.has("no-sync")) deprecated("--no-sync is deprecated: use --no-install.");
+  const { checkout, name } = parseLinkSpec(rest[0]);
+  const from = path.resolve(checkout);
+  if (!fs.existsSync(from) || !fs.statSync(from).isDirectory()) {
+    throw new Error(`Cannot link ${checkout}: ${from} is not a directory`);
+  }
+  const request = normalizeRequest({
+    id: args.flags.get("id") || name || defaultId({ source: `local:${from}` }),
+    source: `local:${from}`,
+    ...(name ? { plugin: name } : {}),
+    ...(args.skills.length ? { skills: args.skills } : {}),
+    ...(args.flags.get("path") ? { path: args.flags.get("path") } : {}),
+  });
+  const local = addLocalPlugin(readLocalPlugins(root) ?? emptyLocalPlugins(), request);
+  if (args.flags.has("no-install") || args.flags.has("no-sync")) {
+    writeLocalPlugins(root, local);
+    console.log(`Linked ${request.id} from ${from} (${LOCAL_PLUGINS_FILE}, not installed)`);
+    return;
+  }
+  const project = loadProject(root);
+  const result = await installOne(root, project.doc, { ...request, linked: true }, project.lock, {
+    force: args.flags.has("force"),
+    saveLock: project.saveLock,
+  });
+  writeLocalPlugins(root, local);
+  console.log(`Linked ${request.id} from ${from}:`);
+  printResult({ ...result, linked: true });
+}
+
+async function cmdUnlink(root, args, rest) {
+  if (!rest[0]) throw new Error("unlink needs a plugin id");
+  const id = idFromArg(rest[0]);
+  const local = readLocalPlugins(root);
+  if (!local) throw new Error(`No ${LOCAL_PLUGINS_FILE}`);
+  const nextLocal = removeLocalPlugin(local, id);
+  if (nextLocal.plugins.length === 0) deleteLocalPlugins(root);
+  else writeLocalPlugins(root, nextLocal);
+  if (args.flags.has("keep-files")) {
+    console.log(`Unlinked ${id} (kept installed files)`);
+    return;
+  }
+  const project = loadProject(root);
+  const committed = project.doc.plugins.find((p) => p.id === id && !p.linked);
+  if (committed) {
+    const result = await installOne(root, project.doc, committed, project.lock, {
+      force: args.flags.has("force"),
+      saveLock: project.saveLock,
+    });
+    console.log(`Unlinked ${id}; restored the committed request:`);
+    printResult(result);
+    return;
+  }
+  uninstallOne(root, id, project.lock, { saveLock: project.saveLock });
+  console.log(`Unlinked ${id}`);
+}
+
+async function cmdProfile(root, args, rest) {
+  const [sub = "list", name] = rest;
+  switch (sub) {
+    case "new": {
+      if (!name) throw new Error("deck profile new needs a name");
+      createProfile(root, name);
+      console.log(`Created ${PROFILES_DIR}/${name}. Edit its prompt.md, add plugins with: deck add <source> --profile ${name}`);
+      return;
+    }
+    case "use": {
+      if (!name) throw new Error("deck profile use needs a name");
+      targetDir(root, name);
+      useProfile(root, name);
+      await install(root, { force: args.flags.has("force") });
+      console.log(`Profile ${name} is active. Start a new Claude session (or /reload-plugins) and reload the Cursor window.`);
+      return;
+    }
+    case "off": {
+      clearProfile(root);
+      await install(root, { force: args.flags.has("force") });
+      console.log("No profile is active.");
+      return;
+    }
+    case "list": {
+      const active = loadProject(root).profile;
+      const names = listProfiles(root);
+      if (names.length === 0) console.log(`(no profiles — create one with: deck profile new <name>)`);
+      for (const n of names) {
+        const count = readPlugins(profileDir(root, n))?.plugins.length ?? 0;
+        console.log(`${n === active ? "*" : " "} ${n}  (${count} plugin${count === 1 ? "" : "s"})`);
+      }
+      return;
+    }
+    default:
+      throw new Error(`Unknown profile command "${sub}". Use: deck profile new|use|off|list`);
+  }
+}
+
+/** --agents-md / --no-agents-md used to toggle the lock; the setting now lives in ai-plugin.json. */
+function applyAgentsMdFlag(root, args) {
+  const on = args.flags.has("agents-md");
+  const off = args.flags.has("no-agents-md");
+  if (!on && !off) return;
+  deprecated(`--${off ? "no-" : ""}agents-md is deprecated: set "agentsMd": ${!off} in ${PLUGINS_FILE}. Done for you.`);
+  const doc = ensurePlugins(root);
+  writePlugins(root, { ...doc, agentsMd: !off });
+}
+
+async function main() {
+  const args = parseArgs(process.argv.slice(2));
   const [cmd, ...rest] = args._;
+  if (!cmd || args.flags.has("help")) {
+    console.log(USAGE);
+    process.exit(cmd || args.flags.has("help") ? 0 : 1);
+  }
+  if (!(cmd in COMMANDS)) throw new Error(`Unknown command: ${cmd}\n\n${USAGE}`);
+  checkFlags(cmd, args);
   const root = args.project;
-  const options = { force: args.force };
+  applyAgentsMdFlag(root, args);
 
   switch (cmd) {
+    case "add":
+      return cmdAdd(root, args, rest);
+    case "remove":
+      return cmdRemove(root, args, rest);
+    case "install":
+      return install(root, { frozen: args.flags.has("frozen"), force: args.flags.has("force") });
+    case "update":
+      return cmdUpdate(root, args, rest);
+    case "status":
+      return cmdStatus(root);
+    case "outdated":
+      return cmdOutdated(root);
+    case "link":
+      return cmdLink(root, args, rest);
+    case "unlink":
+      return cmdUnlink(root, args, rest);
+    case "profile":
+      return cmdProfile(root, args, rest);
+
+    // Deprecated, kept for one version.
     case "init": {
+      deprecated(`"init" is deprecated: deck add creates ${PLUGINS_FILE}.`);
       const doc = ensurePlugins(root);
       console.log(`Wrote ${PLUGINS_FILE} (${doc.plugins.length} plugins)`);
-      break;
+      return;
     }
-
-    case "add": {
-      const request = parseAddSpec(rest[0], args);
-      const doc = addPlugin(ensurePlugins(root), request);
-      if (!args.sync) {
-        writePlugins(root, doc);
-        console.log(`Added ${request.id} to ${PLUGINS_FILE}`);
-        break;
-      }
-      // Like npm install: the request is written only once it resolved and installed.
-      const result = await installOne(root, doc, request, loadLock(root, args.writeAgentsMd), options);
-      writePlugins(root, doc);
-      console.log(`Added ${request.id}:`);
-      printResult(result);
-      break;
-    }
-
-    case "remove": {
-      if (!rest[0]) throw new Error("remove requires a plugin id");
-      const id = idFromArg(rest[0]);
-      const doc = readPlugins(root);
-      if (!doc) throw new Error(`No ${PLUGINS_FILE} — run init or add first`);
-      writePlugins(root, removePlugin(doc, id));
-      uninstallOne(root, id, loadLock(root, args.writeAgentsMd), { keepFiles: args.keepFiles });
-      console.log(`Removed ${id}`);
-      break;
-    }
-
-    case "install":
     case "sync":
     case "apply":
-    case "update": {
-      const doc = readRequestedPlugins(root);
-      if (!doc) throw new Error(`No ${PLUGINS_FILE} — run init, add, or link first`);
-      const update = cmd === "update" ? (rest.length > 0 ? rest.map(idFromArg) : true) : undefined;
-      const lock = loadLock(root, args.writeAgentsMd);
-      if (doc.plugins.length === 0) {
-        await installAll(root, doc, lock, { frozen: args.frozen, ...options });
-        console.log("No plugins requested — nothing to install");
-        break;
-      }
-      console.log(`${cmd === "update" ? "Updating" : "Installing"} ${doc.plugins.length} plugin(s)…`);
-      const { results, removed } = await installAll(root, doc, lock, {
-        frozen: args.frozen,
-        update,
-        ...options,
-      });
-      for (const id of removed) console.log(`  - ${id} (no longer requested)`);
-      for (const result of results) printResult(result);
-      break;
-    }
-
-    case "list": {
-      const doc = readRequestedPlugins(root);
-      if (!doc || doc.plugins.length === 0) {
-        console.log("(no plugins)");
-        break;
-      }
-      const lock = readLockfile(root);
-      const committed = readPlugins(root);
-      for (const request of doc.plugins) {
-        const entry = lock?.plugins.find((p) => p.id === request.id);
-        const what = [request.source, request.plugin && `plugin=${request.plugin}`, request.ref && `ref=${request.ref}`]
-          .filter(Boolean)
-          .join("  ");
-        const overridden = request.linked ? committed?.plugins.find((p) => p.id === request.id) : null;
-        const link = !request.linked
-          ? ""
-          : overridden
-            ? `  (linked, overrides ${overridden.source}${overridden.ref ? `#${overridden.ref}` : ""})`
-            : "  (linked)";
-        console.log(`${request.id}  ${what}${link}`);
-        if (entry) console.log(`  locked: ${describe(entry)}`);
-        else if (!request.linked) console.log("  not locked yet — run deck install");
-      }
-      break;
-    }
-
-    case "outdated": {
-      const rows = outdated(root);
-      if (rows.length === 0) {
-        console.log("(nothing locked)");
-        break;
-      }
-      const table = [["id", "type", "current", "wanted", "latest", ""]].concat(
-        rows.map((r) => [r.id, r.type, r.current, r.wanted ?? "-", r.latest ?? "-", r.note ?? ""]),
-      );
-      const widths = table[0].map((_, i) => Math.max(...table.map((row) => String(row[i]).length)));
-      for (const row of table) console.log(row.map((cell, i) => String(cell).padEnd(widths[i])).join("  ").trimEnd());
-      if (rows.some(isOutdated)) process.exitCode = 1;
-      break;
-    }
-
-    case "doctor": {
-      const findings = doctor(root);
-      const mark = { error: "✖", warn: "!", ok: "✔" };
-      for (const f of findings) console.log(`${mark[f.level]} ${f.id ? `${f.id}: ` : ""}${f.message}`);
-      if (findings.some((f) => f.level === "error")) process.exitCode = 1;
-      break;
-    }
-
-    case "link": {
-      if (!rest[0]) throw new Error("link requires <checkout>[@<plugin>]");
-      const { checkout, name } = parseLinkSpec(rest[0]);
-      const from = path.resolve(checkout);
-      const request = normalizeRequest({
-        id: args.id || name || defaultId({ source: `local:${from}` }),
-        source: `local:${from}`,
-        ...(name ? { plugin: name } : {}),
-        ...(args.skills.length ? { skills: args.skills } : {}),
-        ...(args.path ? { path: args.path } : {}),
-      });
-      if (!fs.existsSync(from) || !fs.statSync(from).isDirectory()) {
-        throw new Error(`Cannot link ${checkout}: ${from} is not a directory`);
-      }
-      const local = addLocalPlugin(readLocalPlugins(root) ?? emptyLocalPlugins(), request);
-      if (!args.sync) {
-        writeLocalPlugins(root, local);
-        console.log(`Linked ${request.id} from ${from} (${LOCAL_PLUGINS_FILE})`);
-        break;
-      }
-      const doc = readRequestedPlugins(root) ?? { plugins: [] };
-      const result = await installOne(root, doc, { ...request, linked: true }, loadLock(root, args.writeAgentsMd), options);
-      writeLocalPlugins(root, local);
-      console.log(`Linked ${request.id} from ${from}:`);
-      printResult({ ...result, linked: true });
-      break;
-    }
-
-    case "unlink": {
-      if (!rest[0]) throw new Error("unlink requires a plugin id");
-      const id = idFromArg(rest[0]);
-      const local = readLocalPlugins(root);
-      if (!local) throw new Error(`No ${LOCAL_PLUGINS_FILE}`);
-      const nextLocal = removeLocalPlugin(local, id);
-      if (nextLocal.plugins.length === 0) deleteLocalPlugins(root);
-      else writeLocalPlugins(root, nextLocal);
-      const lock = loadLock(root, args.writeAgentsMd);
-      const committed = readPlugins(root)?.plugins.find((p) => p.id === id);
-      if (args.keepFiles) {
-        console.log(`Unlinked ${id} (kept installed files)`);
-        break;
-      }
-      if (committed) {
-        const result = await installOne(root, readRequestedPlugins(root), committed, lock, options);
-        console.log(`Unlinked ${id}; restored the committed request:`);
-        printResult(result);
-        break;
-      }
-      uninstallOne(root, id, lock);
-      console.log(`Unlinked ${id}`);
-      break;
-    }
-
+      deprecated(`"${cmd}" is deprecated: use deck install.`);
+      return install(root, { frozen: args.flags.has("frozen"), force: args.flags.has("force") });
+    case "list":
+    case "doctor":
+      deprecated(`"${cmd}" is deprecated: use deck status.`);
+      return cmdStatus(root);
     case "scaffold": {
-      const name = rest[0];
-      if (!name) throw new Error("scaffold requires <name>");
-      if (args.owner === undefined) throw new Error("scaffold requires --owner <name>");
-      const { root: created } = scaffoldMarketplace({ name, owner: args.owner, parentDir: args.dir });
+      deprecated(`"scaffold" is deprecated and leaves deck in the next version (it is an authoring tool).`);
+      if (!rest[0]) throw new Error("scaffold requires <name>");
+      if (!args.flags.has("owner")) throw new Error("scaffold requires --owner <name>");
+      const { root: created } = scaffoldMarketplace({
+        name: rest[0],
+        owner: args.flags.get("owner"),
+        parentDir: args.flags.has("dir") ? path.resolve(args.flags.get("dir")) : process.cwd(),
+      });
       console.log(`Created marketplace at ${created}`);
-      break;
+      return;
     }
-
-    default:
-      throw new Error(`Unknown command: ${cmd}\n\n${usage()}`);
   }
 }
 
@@ -352,4 +497,3 @@ main().catch((err) => {
   console.error(err.message || err);
   process.exit(1);
 });
-

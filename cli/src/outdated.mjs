@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readLockfile } from "./lockfile.mjs";
+import { loadProject } from "./project.mjs";
 import { descriptorFor } from "./sources/spec.mjs";
 
 /**
@@ -12,8 +12,7 @@ import { descriptorFor } from "./sources/spec.mjs";
  * @returns {Row[]}
  */
 export function outdated(projectRoot) {
-  const lock = readLockfile(projectRoot);
-  if (!lock) return [];
+  const { lock } = loadProject(projectRoot);
   return lock.plugins.map((entry) => {
     const { request, resolved } = entry;
     try {

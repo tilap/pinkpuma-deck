@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import path from "node:path";
-import { doctor } from "./doctor.mjs";
+import { status } from "./status.mjs";
 import { installAll } from "./install.mjs";
 import { readLockfile } from "./lockfile.mjs";
 import { writePlugins } from "./plugins.mjs";
@@ -25,6 +25,7 @@ async function installed(files = {}) {
   return root;
 }
 
+const doctor = (root, options) => status(root, options).findings;
 const levels = (findings, level) => findings.filter((f) => f.level === level).map((f) => f.message);
 
 test("a fresh install is healthy, with warnings for inactive hooks", async () => {
@@ -72,5 +73,5 @@ test("checks .gitignore and native plugins against the claude CLI", async () => 
 });
 
 test("without ai-plugin.json there is one clear error", () => {
-  assert.deepEqual(doctor(tmp()), [{ level: "error", message: "No ai-plugin.json. Run deck init or deck add." }]);
+  assert.deepEqual(doctor(tmp()), [{ level: "error", message: "No ai-plugin.json. Run deck add <source>." }]);
 });

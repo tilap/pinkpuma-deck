@@ -158,19 +158,23 @@ export function parseAddSpec(spec, flags = {}) {
   } else if (/^https:\/\/.+\.(zip|tgz|tar\.gz)(\?.*)?$/.test(spec)) {
     request = { source: `archive:${spec}` };
   } else if (spec.startsWith("git+") || spec.startsWith("git@") || spec.startsWith("ssh://")) {
-    const url = spec.startsWith("git+") ? spec.slice(4) : spec;
+    const { rest, plugin } = splitPlugin(spec.startsWith("git+") ? spec.slice(4) : spec);
+    const url = rest;
     const hash = url.indexOf("#");
     const github = githubFromUrl(hash === -1 ? url : url.slice(0, hash));
     request = {
       source: github ? `github:${github}` : `git:${hash === -1 ? url : url.slice(0, hash)}`,
       ...(hash === -1 ? {} : { ref: url.slice(hash + 1) }),
+      ...(plugin ? { plugin } : {}),
     };
   } else if (spec.startsWith("https://") || spec.startsWith("http://")) {
-    const [url, ref] = spec.split("#");
+    const { rest, plugin } = splitPlugin(spec);
+    const [url, ref] = rest.split("#");
     const github = githubFromUrl(url);
     request = {
       source: github ? `github:${github}` : `git:${url}`,
       ...(ref ? { ref } : {}),
+      ...(plugin ? { plugin } : {}),
     };
   } else {
     const at = spec.match(/^([\w.-]+\/[\w.-]+)@([^@/]+)$/);
@@ -194,6 +198,18 @@ export function parseAddSpec(spec, flags = {}) {
   if (flags.skills?.length) request.skills = flags.skills;
   request.id = flags.id || defaultId(request);
   return normalizeRequest(request, `"${spec}"`);
+}
+
+/**
+ * A trailing `@plugin` after a git URL (and its `#ref`). The `@` of an SSH user
+ * (`git@host:…`) is not one: what follows it holds a `:` or a `/`.
+ */
+function splitPlugin(value) {
+  const at = value.lastIndexOf("@");
+  if (at <= 0) return { rest: value, plugin: undefined };
+  const tail = value.slice(at + 1);
+  if (!tail || /[/:#]/.test(tail)) return { rest: value, plugin: undefined };
+  return { rest: value.slice(0, at), plugin: tail };
 }
 
 /** owner/repo for a github.com URL, else null. */

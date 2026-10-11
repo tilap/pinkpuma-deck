@@ -3,40 +3,52 @@ import path from "node:path";
 import { gitignoreStatus } from "./gitignore.mjs";
 import { claudeBin, nativeInstalled } from "./hosts/claude-native.mjs";
 import { hostModes } from "./install.mjs";
-import { readLockfile } from "./lockfile.mjs";
 import { pluginName, treeIntegrity } from "./materialize.mjs";
 import { LOCK_FILE, PLUGINS_FILE, deckPluginRel } from "./paths.mjs";
-import { readRequestedPlugins } from "./plugins.mjs";
+import { loadProject } from "./project.mjs";
 import { sameRequest } from "./sources/spec.mjs";
 import { readState } from "./state.mjs";
 
 /**
- * Check that the project matches its request and its lock, and that each host
- * can see what was installed. Reads only: it never fetches or writes.
+ * What the project asks for (base, active profile, links), what is locked and
+ * installed, and every mismatch. Reads only: it never fetches or writes.
  *
  * @typedef {{ level: "error" | "warn" | "ok", id?: string, message: string }} Finding
+ * @typedef {{ id: string, from: string, source: string, linked: boolean, entry: object | null }} Row
  * @param {{ claude?: () => string | null }} [options] test seam for the claude CLI
- * @returns {Finding[]}
+ * @returns {{ profile: string | null, rows: Row[], findings: Finding[] }}
  */
-export function doctor(projectRoot, options = {}) {
+export function status(projectRoot, options = {}) {
+  const project = loadProject(projectRoot);
+  const committed = [...project.base.plugins, ...(project.prof?.plugins ?? [])];
+  const side = (id) => (project.owner.get(id) === "base" ? "base" : `profile ${project.profile}`);
+  const rows = project.doc.plugins.map((request) => ({
+    id: request.id,
+    from: request.linked ? "link" : side(request.id),
+    overrides: request.linked ? (committed.find((p) => p.id === request.id) ?? null) : null,
+    source: request.source,
+    ref: request.ref,
+    linked: Boolean(request.linked),
+    entry: project.lock.plugins.find((p) => p.id === request.id) ?? null,
+  }));
+  return { profile: project.profile, rows, findings: checkProject(project, options) };
+}
+
+function checkProject(project, options) {
+  const projectRoot = project.root;
   /** @type {Finding[]} */
   const findings = [];
   const error = (message, id) => findings.push({ level: "error", message, ...(id ? { id } : {}) });
   const warn = (message, id) => findings.push({ level: "warn", message, ...(id ? { id } : {}) });
 
-  const doc = readRequestedPlugins(projectRoot);
-  if (!doc) {
-    error(`No ${PLUGINS_FILE}. Run deck init or deck add.`);
+  if (!project.exists) {
+    error(`No ${PLUGINS_FILE}. Run deck add <source>.`);
     return findings;
   }
-  const lock = readLockfile(projectRoot);
-  if (lock?.legacyState) warn(`${LOCK_FILE} is in the deck 0.6 format. Run deck install to convert it.`);
+  const { doc, lock } = project;
+  if (lock.legacyState) warn(`${LOCK_FILE} is in the deck 0.6 format. Run deck install to convert it.`);
   const state = readState(projectRoot);
   const modes = hostModes(doc);
-
-  if (doc.plugins.some((p) => !p.linked) && !lock) {
-    error(`No ${LOCK_FILE}. Run deck install.`);
-  }
 
   const wanted = new Set(doc.plugins.map((p) => p.id));
   for (const request of doc.plugins) {
@@ -82,12 +94,15 @@ export function doctor(projectRoot, options = {}) {
     }
   }
 
-  for (const entry of lock?.plugins ?? []) {
+  for (const entry of lock.plugins) {
     if (!wanted.has(entry.id)) error(`locked but no longer requested. Run deck install.`, entry.id);
+  }
+  for (const id of Object.keys(state.plugins)) {
+    if (!wanted.has(id)) error("installed but no longer requested (another profile?). Run deck install.", id);
   }
 
   const owners = new Map();
-  for (const entry of lock?.plugins ?? []) {
+  for (const entry of lock.plugins) {
     for (const name of entry.components.skills) {
       if (owners.has(name)) {
         warn(`skill "${name}" is also shipped by "${owners.get(name)}"; copy mode cannot install both`, entry.id);

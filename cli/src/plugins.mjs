@@ -5,13 +5,13 @@ import { fromLegacyRequest, isLegacyRequest, normalizeRequest } from "./sources/
 
 /**
  * ai-plugin.json — what to install. Same role as package.json dependencies.
- *   { "plugins": [Request, …], "hosts": { "claude": "copy", "cursor": "copy" } }
+ *   { "plugins": [Request, …], "hosts": { "claude": "native", "cursor": "copy" }, "agentsMd": true }
  * Entries written by deck <= 0.6 (`{ marketplace, name, ref }`) are read and
  * rewritten in the current shape on the next write.
  *
  * @typedef {import("./sources/spec.mjs").Request} Request
  * @typedef {"copy" | "native" | "off"} HostMode
- * @typedef {{ plugins: Request[], hosts?: { claude?: HostMode, cursor?: HostMode } }} PluginsFile
+ * @typedef {{ plugins: Request[], hosts?: { claude?: HostMode, cursor?: HostMode }, agentsMd?: boolean }} PluginsFile
  */
 
 const HOST_MODES = new Set(["copy", "native", "off"]);
@@ -48,9 +48,13 @@ function normalizeList(list, file) {
 export function normalizePlugins(raw) {
   if (!raw || typeof raw !== "object") throw new Error(`Invalid ${PLUGINS_FILE}`);
   const hosts = normalizeHosts(raw.hosts);
+  if (raw.agentsMd != null && typeof raw.agentsMd !== "boolean") {
+    throw new Error(`${PLUGINS_FILE} agentsMd must be true or false`);
+  }
   return {
     plugins: normalizeList(raw.plugins, PLUGINS_FILE).map(({ from, ...request }) => request),
     ...(hosts ? { hosts } : {}),
+    ...(raw.agentsMd === false ? { agentsMd: false } : {}),
   };
 }
 

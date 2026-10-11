@@ -1,6 +1,7 @@
 import { rewriteAgentsMd } from "./agents.mjs";
 import { ensureDeckGitignored } from "./gitignore.mjs";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { claudeBin, isEnabled, nativeInstall, nativeUninstall, releaseMarketplace } from "./hosts/claude-native.mjs";
 import { copyInstall, removeInstalledFiles } from "./hosts/copy.mjs";
@@ -168,10 +169,15 @@ function adoptLegacyState(state, lock) {
   }
 }
 
-function persist(projectRoot, lock, state) {
+/**
+ * Write the lock, the state, and the deck marketplace. `saveLock` lets a caller
+ * split one in-memory lock across files (the base and the active profile).
+ */
+function persist(projectRoot, lock, state, saveLock) {
   const anyNative = Object.values(state.plugins).some((entry) => entry.native?.includes("claude"));
   if (!anyNative) releaseMarketplace(projectRoot);
-  writeLockfile(projectRoot, lock);
+  if (saveLock) saveLock(lock);
+  else writeLockfile(projectRoot, lock);
   writeState(projectRoot, state);
   writeDeckMarketplace(projectRoot, Object.keys(state.plugins));
   ensureDeckGitignored(projectRoot);
@@ -206,7 +212,7 @@ export async function installOne(projectRoot, doc, request, lock, options = {}) 
   }
   const { entry, built } = resolved;
   if (!request.linked) current = upsertLockEntry(current, entry);
-  persist(projectRoot, current, state);
+  persist(projectRoot, current, state, options.saveLock);
   // AGENTS.md shows a linked plugin's snippets even though the lock does not hold it.
   rewriteAgentsMd(projectRoot, request.linked ? upsertLockEntry(current, entry) : current);
   return { entry, built, warnings, lock: current };
@@ -215,7 +221,7 @@ export async function installOne(projectRoot, doc, request, lock, options = {}) 
 /**
  * Remove a plugin's files, normalized tree, lock entry, and state.
  */
-export function uninstallOne(projectRoot, id, lock, { keepFiles = false } = {}) {
+export function uninstallOne(projectRoot, id, lock, { keepFiles = false, saveLock } = {}) {
   const state = readState(projectRoot);
   adoptLegacyState(state, lock);
   if (keepFiles) {
@@ -225,7 +231,7 @@ export function uninstallOne(projectRoot, id, lock, { keepFiles = false } = {}) 
     deactivate(projectRoot, id, state);
   }
   const next = removeLockEntry(lock ?? emptyLockfile(), id);
-  persist(projectRoot, next, state);
+  persist(projectRoot, next, state, saveLock);
   rewriteAgentsMd(projectRoot, next);
   return next;
 }
@@ -281,10 +287,27 @@ export async function installAll(projectRoot, doc, lock, options = {}) {
     const warnings = activate(projectRoot, request.id, built.dir, hostModes(doc), state, options.force, built.integrity);
     if (request.linked) linkedEntries.push(entry);
     else current = upsertLockEntry(current, entry);
-    persist(projectRoot, current, state);
+    persist(projectRoot, current, state, options.saveLock);
     results.push({ entry, built, warnings, pinned: Boolean(pin), linked: Boolean(request.linked) });
   }
-  persist(projectRoot, current, state);
+  persist(projectRoot, current, state, options.saveLock);
   rewriteAgentsMd(projectRoot, linkedEntries.reduce(upsertLockEntry, current));
   return { results, removed, lock: current };
 }
+
+/**
+ * Resolve and pin a request without installing it anywhere: for a profile that
+ * is not active. The normalized tree is built in a scratch folder, then dropped.
+ * @returns {Promise<LockEntry>}
+ */
+export async function lockOnly(request, pin, options = {}) {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "deck-lock-"));
+  try {
+    const { entry } = await resolveRequest(scratch, request, { pin, fetch: options.fetch });
+    return entry;
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+}
+
+export { pinFor };
