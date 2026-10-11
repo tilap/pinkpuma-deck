@@ -22,7 +22,8 @@ const LOCAL_FILE = "ai-plugin.local.json";
 const LOCK_FILE = "ai-plugin.lock.json";
 const SKILLS_START = "<!-- pinkpuma-deck:skills:start -->";
 const SKILLS_END = "<!-- pinkpuma-deck:skills:end -->";
-const MCP_KEY = "deck__example_mcp-kit__notes__notes";
+const MCP_KEY = "deck__notes__notes";
+const TOOLBELT_SOURCE = `github:${TOOLBELT_REPO}`;
 
 function usage() {
   return `Usage: node run.mjs --deck <cli.mjs> --toolbelt <checkout> [--target <empty-dir>]
@@ -230,20 +231,41 @@ function readLocal(target) {
   return readJson(target, LOCAL_FILE);
 }
 
-function findPlugin(doc, name) {
-  return doc?.plugins?.find((plugin) => plugin.name === name) ?? null;
+/** Request, local link, and lock entries are all keyed by id (the plugin name here). */
+function findPlugin(doc, id) {
+  return doc?.plugins?.find((plugin) => plugin.id === id) ?? null;
 }
 
 function pluginNames(doc) {
-  return (doc?.plugins ?? []).map((plugin) => plugin.name);
+  return (doc?.plugins ?? []).map((plugin) => plugin.id);
 }
 
+/** What `deck add` takes for a toolbelt plugin. */
 function pluginId(name) {
   return `${TOOLBELT_REPO}@${name}`;
 }
 
+/** The commit a lock entry pins, or null. */
+function lockedSha(entry) {
+  const sha = entry?.resolved?.sha;
+  return /^[0-9a-f]{40}$/.test(sha ?? "") ? sha : null;
+}
+
+/** A request for a toolbelt plugin, as `deck add owner/repo@name` writes it. */
+function isToolbeltRequest(entry, name) {
+  return entry?.id === name && entry.source === TOOLBELT_SOURCE && entry.plugin === name;
+}
+
+/** Lines of `deck list` that start a plugin (not the indented lock lines). */
+function listedIds(output) {
+  return output
+    .split("\n")
+    .filter((line) => line && !line.startsWith(" "))
+    .map((line) => line.split(/\s+/)[0]);
+}
+
 function assetRel(host, pluginName, file) {
-  const safe = pluginId(pluginName).replace(/[^a-zA-Z0-9._@+-]+/g, "__");
+  const safe = pluginName.replace(/[^a-zA-Z0-9._@+-]+/g, "__");
   return `${host}/plugins/${safe}/${file}`;
 }
 
@@ -379,12 +401,12 @@ function buildSteps() {
       checks: [
         {
           id: "rejected",
-          expected: "Code non nul, message `Invalid plugin spec`, requête inchangée.",
+          expected: "Code non nul, message `Cannot read`, requête inchangée.",
           test(api) {
             const command = lastCommand(api);
             const text = commandText(command);
             const same = requestUnchanged(api);
-            const ok = command?.exitCode !== 0 && text.includes("Invalid plugin spec") && same;
+            const ok = command?.exitCode !== 0 && text.includes("Cannot read") && same;
             return { ok, actual: `exit=${command?.exitCode} requêteInchangée=${same} ${text.trim()}` };
           },
         },
@@ -509,45 +531,78 @@ function buildSteps() {
         {
           id: "request-and-lock",
           expected:
-            "La requête a git-workflow @ main. Le lock est en version 2, writeAgentsMd est true, resolved est un SHA, et les quatre snippets sont enregistrés.",
+            "La requête a git-workflow (source github:tilap/pinkpuma-toolbelt, sans ref : branche par défaut). Le lock est en version 3, writeAgentsMd est true, resolved.sha est un SHA, l'intégrité est un sha256, les composants listent les quatre skills et les quatre snippets sont enregistrés.",
           test(api) {
             const requested = findPlugin(readRequest(api.target), "git-workflow");
             const locked = findPlugin(readLock(api.target), "git-workflow");
             const lock = readLock(api.target);
             const snippets = (locked?.agentsSnippets ?? []).map((item) => item.skill).sort();
+            const skills = (locked?.components?.skills ?? []).slice().sort();
+            const sorted = workflowSkills.slice().sort().join(",");
             const ok =
-              requested?.ref === "main" &&
-              lock.lockfileVersion === 2 &&
+              isToolbeltRequest(requested, "git-workflow") &&
+              requested.ref === undefined &&
+              lock.lockfileVersion === 3 &&
               lock.writeAgentsMd === true &&
-              locked?.ref === "main" &&
-              /^[0-9a-f]{40}$/.test(locked?.resolved ?? "") &&
-              snippets.join(",") === workflowSkills.slice().sort().join(",");
+              isToolbeltRequest(locked?.request, "git-workflow") &&
+              Boolean(lockedSha(locked)) &&
+              /^sha256-[0-9a-f]{64}$/.test(locked?.integrity ?? "") &&
+              skills.join(",") === sorted &&
+              snippets.join(",") === sorted;
             return {
               ok,
-              actual: `ref=${requested?.ref} lockVersion=${lock.lockfileVersion} writeAgentsMd=${lock.writeAgentsMd} resolved=${locked?.resolved} snippets=${snippets.join(",")}`,
+              actual: `source=${requested?.source} ref=${requested?.ref} lockVersion=${lock.lockfileVersion} writeAgentsMd=${lock.writeAgentsMd} sha=${lockedSha(locked)} integrity=${locked?.integrity} skills=${skills.join(",")} snippets=${snippets.join(",")}`,
             };
           },
         },
         {
           id: "gitignore-appended",
           expected:
-            "Le .gitignore existant liste ai-plugin.lock.json et ai-plugin.local.json, et garde node_modules.",
+            "Le .gitignore existant liste .deck/ et ai-plugin.local.json, garde node_modules, et ne liste pas ai-plugin.lock.json (le lock se commite).",
           test(api) {
             const text = readText(api.target, ".gitignore");
             const ok =
               text.includes("node_modules/") &&
-              text.includes(LOCK_FILE) &&
-              text.includes(LOCAL_FILE);
+              text.split("\n").includes(".deck/") &&
+              text.includes(LOCAL_FILE) &&
+              !text.includes(LOCK_FILE);
             return { ok, actual: text.trim() };
           },
         },
       ],
     },
     {
-      id: "add-dev-agents",
+      id: "add-dev-agents-refused",
       action: `deck add ${TOOLBELT_REPO}@dev-agents`,
       run(api) {
+        api.requestBefore = readText(api.target, REQUEST_FILE);
         api.deck(["add", pluginId("dev-agents")]);
+      },
+      checks: [
+        {
+          id: "user-agent-protected",
+          expected:
+            "Code non nul, message `was not written by deck` : l'agent code-reviewer de l'utilisateur n'est pas écrasé sans --force. La requête est inchangée (add n'écrit la requête qu'après une installation réussie), et USER OWNED est toujours là des deux côtés.",
+          test(api) {
+            const command = lastCommand(api);
+            const text = commandText(command);
+            const same = requestUnchanged(api);
+            const kept = agentRels("code-reviewer").every((rel) => readText(api.target, rel).includes("USER OWNED"));
+            const noFeaturePlan = !has(api.target, ".claude/skills/feature-plan/SKILL.md");
+            const ok = command?.exitCode !== 0 && text.includes("was not written by deck") && same && kept && noFeaturePlan;
+            return {
+              ok,
+              actual: `exit=${command?.exitCode} requêteInchangée=${same} userOwned=${kept} featurePlanAbsent=${noFeaturePlan} ${text.trim()}`,
+            };
+          },
+        },
+      ],
+    },
+    {
+      id: "add-dev-agents",
+      action: `deck add ${TOOLBELT_REPO}@dev-agents --force`,
+      run(api) {
+        api.deck(["add", pluginId("dev-agents"), "--force"]);
       },
       checks: [
         {
@@ -565,7 +620,7 @@ function buildSteps() {
         {
           id: "user-agent-replaced",
           expected:
-            "L'agent code-reviewer préexistant est remplacé par celui du plugin (plus de USER OWNED) des deux côtés.",
+            "Avec --force, l'agent code-reviewer préexistant est remplacé par celui du plugin (plus de USER OWNED) des deux côtés.",
           test(api) {
             const parts = agentRels("code-reviewer").map((rel) => {
               const text = readText(api.target, rel);
@@ -587,14 +642,16 @@ function buildSteps() {
       checks: [
         {
           id: "shows-both",
-          expected: "La sortie liste git-workflow et dev-agents, pas handoff, et aucun lien local.",
+          expected: "La sortie liste git-workflow et dev-agents (verrouillés), pas handoff, et aucun lien local.",
           test(api) {
             const output = lastCommand(api)?.stdout ?? "";
+            const ids = listedIds(output);
             const ok =
-              output.includes(pluginId("git-workflow")) &&
-              output.includes(pluginId("dev-agents")) &&
-              !output.includes(pluginId("handoff")) &&
-              !output.includes("local from=");
+              ids.includes("git-workflow") &&
+              ids.includes("dev-agents") &&
+              !ids.includes("handoff") &&
+              (output.match(/locked: /g) ?? []).length === 2 &&
+              !output.includes("(linked");
             return { ok, actual: output.trim() || "(sortie vide)" };
           },
         },
@@ -610,15 +667,15 @@ function buildSteps() {
         {
           id: "requested-not-copied",
           expected:
-            "La requête contient handoff @ main, le lock ne le contient pas, et le skill n'est pas copié.",
+            "La requête contient handoff, le lock ne le contient pas, et le skill n'est pas copié.",
           test(api) {
             const requested = findPlugin(readRequest(api.target), "handoff");
             const locked = findPlugin(readLock(api.target), "handoff");
-            const copied = has(api.target, ".claude/skills/handoff/SKILL.md");
-            const ok = requested?.ref === "main" && !locked && !copied;
+            const copied = has(api.target, ".cursor/skills/handoff/SKILL.md");
+            const ok = isToolbeltRequest(requested, "handoff") && !locked && !copied;
             return {
               ok,
-              actual: `ref=${requested?.ref ?? "absent"} dansLeLock=${Boolean(locked)} skillCopié=${copied}`,
+              actual: `requête=${Boolean(requested)} dansLeLock=${Boolean(locked)} skillCopié=${copied}`,
             };
           },
         },
@@ -637,10 +694,10 @@ function buildSteps() {
           test(api) {
             const files = presence(api.target, ["handoff", "resume"].flatMap(skillRels));
             const locked = findPlugin(readLock(api.target), "handoff");
-            const resolved = /^[0-9a-f]{40}$/.test(locked?.resolved ?? "");
+            const sha = lockedSha(locked);
             return {
-              ok: files.ok && resolved,
-              actual: `${files.actual}; resolved=${locked?.resolved ?? "absent"}`,
+              ok: files.ok && Boolean(sha),
+              actual: `${files.actual}; sha=${sha ?? "absent"}`,
             };
           },
         },
@@ -740,15 +797,14 @@ function buildSteps() {
         {
           id: "parsed-and-copied",
           expected:
-            "La forme owner/repo/plugin ajoute spec-workflow @ main et copie to-brief, to-spec et to-tickets.",
+            "La forme owner/repo/plugin ajoute spec-workflow (même requête que owner/repo@plugin) et copie to-brief, to-spec et to-tickets.",
           test(api) {
             const requested = findPlugin(readRequest(api.target), "spec-workflow");
             const files = presence(api.target, specSkills.flatMap(skillRels));
-            const ok =
-              requested?.marketplace === TOOLBELT_REPO && requested?.ref === "main" && files.ok;
+            const ok = isToolbeltRequest(requested, "spec-workflow") && files.ok;
             return {
               ok,
-              actual: `marketplace=${requested?.marketplace} ref=${requested?.ref} ${files.actual}`,
+              actual: `source=${requested?.source} plugin=${requested?.plugin} ${files.actual}`,
             };
           },
         },
@@ -805,21 +861,20 @@ function buildSteps() {
         {
           id: "single-entry-at-sha",
           expected:
-            "Une seule entrée git-workflow, son ref est le HEAD local, et le skill commit est toujours là.",
+            "Une seule entrée git-workflow, son ref est le HEAD local, le lock pince ce commit (request.ref et resolved.sha), et le skill commit est toujours là.",
           test(api) {
-            const requested = readRequest(api.target).plugins.filter(
-              (plugin) => plugin.name === "git-workflow",
-            );
+            const requested = readRequest(api.target).plugins.filter((plugin) => plugin.id === "git-workflow");
             const locked = findPlugin(readLock(api.target), "git-workflow");
             const skillOk = has(api.target, ".claude/skills/commit/SKILL.md");
             const ok =
               requested.length === 1 &&
               requested[0].ref === api.sha &&
-              locked?.ref === api.sha &&
+              locked?.request?.ref === api.sha &&
+              lockedSha(locked) === api.sha &&
               skillOk;
             return {
               ok,
-              actual: `entrées=${requested.length} ref=${requested[0]?.ref ?? "absent"} lockRef=${locked?.ref} skill=${skillOk}`,
+              actual: `entrées=${requested.length} ref=${requested[0]?.ref ?? "absent"} lockRef=${locked?.request?.ref} sha=${lockedSha(locked)} skill=${skillOk}`,
             };
           },
         },
@@ -963,7 +1018,7 @@ function buildSteps() {
       run(api) {
         const requestPath = path.join(api.target, REQUEST_FILE);
         const doc = readRequest(api.target);
-        doc.plugins = doc.plugins.filter((plugin) => plugin.name !== "project-docs");
+        doc.plugins = doc.plugins.filter((plugin) => plugin.id !== "project-docs");
         fs.writeFileSync(requestPath, `${JSON.stringify(doc, null, 2)}\n`);
         api.record({
           argv: ["edit", REQUEST_FILE, "drop", "project-docs"],
@@ -977,7 +1032,7 @@ function buildSteps() {
         {
           id: "project-docs-removed",
           expected:
-            "deck sync quitte avec le code 0, project-docs disparaît, git-workflow et npm-publish restent. Les copies de handoff (retirées avec --keep-files) restent, parce qu'elles ne sont plus dans le lock.",
+            "deck sync quitte avec le code 0, project-docs disparaît, git-workflow et npm-publish restent. Les copies de handoff (retirées avec --keep-files) restent : deck ne les suit plus.",
           test(api) {
             const command = commandNamed(api, "sync");
             const gone = absence(api.target, [
@@ -1006,12 +1061,12 @@ function buildSteps() {
       checks: [
         {
           id: "rejected",
-          expected: "Code non nul, message `No plugin entry`, requête inchangée.",
+          expected: "Code non nul, message `No plugin with id`, requête inchangée.",
           test(api) {
             const command = lastCommand(api);
             const text = commandText(command);
             const same = requestUnchanged(api);
-            const ok = command?.exitCode !== 0 && text.includes("No plugin entry") && same;
+            const ok = command?.exitCode !== 0 && text.includes("No plugin with id") && same;
             return { ok, actual: `exit=${command?.exitCode} requêteInchangée=${same} ${text.trim()}` };
           },
         },
@@ -1044,20 +1099,21 @@ function buildSteps() {
               omitted.ok &&
               same &&
               !requested.includes("nextjs-app-structure") &&
-              linked?.from === api.toolbelt &&
-              linked?.marketplace === TOOLBELT_REPO;
+              linked?.source === `local:${api.toolbelt}` &&
+              linked?.plugin === "nextjs-app-structure";
             return {
               ok,
-              actual: `${files.actual}; requêteInchangée=${same}; from=${linked?.from ?? "absent"}`,
+              actual: `${files.actual}; requêteInchangée=${same}; source=${linked?.source ?? "absent"}`,
             };
           },
         },
         {
           id: "list-shows-local",
-          expected: "deck list affiche `local from=` avec le chemin du checkout.",
+          expected: "deck list affiche nextjs-app-structure avec `local:<checkout>` et `(linked)`.",
           test(api) {
             const output = commandNamed(api, "list")?.stdout ?? "";
-            const ok = output.includes(`local from=${api.toolbelt}`);
+            const line = output.split("\n").find((item) => item.startsWith("nextjs-app-structure ")) ?? "";
+            const ok = line.includes(`local:${api.toolbelt}`) && line.includes("(linked)");
             return { ok, actual: output.trim() || "(sortie vide)" };
           },
         },
@@ -1083,21 +1139,22 @@ function buildSteps() {
         {
           id: "overrides-committed-ref",
           expected:
-            "La requête garde le SHA. Le lien local et le lock pointent vers le checkout, et list affiche `overrides ref=<sha>`.",
+            "La requête garde le SHA. Le lien local pointe vers le checkout. Le lock garde la requête commitée (un lien n'est jamais verrouillé), et list affiche `overrides github:…#<sha>`.",
           test(api) {
             const requested = findPlugin(readRequest(api.target), "git-workflow");
             const linked = findPlugin(readLocal(api.target), "git-workflow");
             const locked = findPlugin(readLock(api.target), "git-workflow");
             const output = commandNamed(api, "list")?.stdout ?? "";
+            const override = `overrides ${TOOLBELT_SOURCE}#${api.sha}`;
             const ok =
               requested?.ref === api.sha &&
-              linked?.from === api.toolbelt &&
-              locked?.source === api.toolbelt &&
-              locked?.resolved === api.sha &&
-              output.includes(`overrides ref=${api.sha}`);
+              linked?.source === `local:${api.toolbelt}` &&
+              locked?.request?.ref === api.sha &&
+              lockedSha(locked) === api.sha &&
+              output.includes(override);
             return {
               ok,
-              actual: `requestRef=${requested?.ref} source=${locked?.source} resolved=${locked?.resolved} listHasOverride=${output.includes("overrides ref=")}`,
+              actual: `requestRef=${requested?.ref} linkSource=${linked?.source} lockSha=${lockedSha(locked)} listHasOverride=${output.includes(override)}`,
             };
           },
         },
@@ -1113,7 +1170,7 @@ function buildSteps() {
         {
           id: "restored-sha",
           expected:
-            "Le lien git-workflow disparaît, nextjs reste lié, la requête garde le SHA, le lock n'a plus de source, et le skill commit reste.",
+            "Le lien git-workflow disparaît, nextjs reste lié, la requête et le lock gardent le SHA, la requête commitée est réinstallée, et le skill commit reste.",
           test(api) {
             const command = lastCommand(api);
             const text = commandText(command);
@@ -1123,16 +1180,15 @@ function buildSteps() {
             const skillOk = has(api.target, ".claude/skills/commit/SKILL.md");
             const ok =
               command?.exitCode === 0 &&
-              text.includes(`restored ref=${api.sha}`) &&
+              text.includes("restored the committed request") &&
               !localNames.includes("git-workflow") &&
               localNames.includes("nextjs-app-structure") &&
               requested?.ref === api.sha &&
-              locked?.source == null &&
-              locked?.ref === api.sha &&
+              lockedSha(locked) === api.sha &&
               skillOk;
             return {
               ok,
-              actual: `exit=${command?.exitCode} local=${localNames.join(", ")} lockRef=${locked?.ref} source=${locked?.source ?? "absente"} ${text.trim()}`,
+              actual: `exit=${command?.exitCode} local=${localNames.join(", ")} lockSha=${lockedSha(locked)} ${text.trim()}`,
             };
           },
         },
@@ -1155,13 +1211,13 @@ function buildSteps() {
             const copied = has(api.target, ".claude/skills/to-spec/SKILL.md");
             const text = skillsBlock(api.target);
             const ok =
-              linked?.from === api.toolbelt &&
+              linked?.source === `local:${api.toolbelt}` &&
               !requested.includes("spec-workflow") &&
               !copied &&
               !text.includes("If the `to-tickets` skill is available");
             return {
               ok,
-              actual: `from=${linked?.from ?? "absent"} skillCopié=${copied} snippet=${text.includes("to-tickets")}`,
+              actual: `source=${linked?.source ?? "absent"} skillCopié=${copied} snippet=${text.includes("to-tickets")}`,
             };
           },
         },
@@ -1177,7 +1233,7 @@ function buildSteps() {
         {
           id: "materialized",
           expected:
-            "to-brief, to-spec et to-tickets sont copiés, nextjs reste, le lock enregistre la source, et le snippet to-tickets revient.",
+            "to-brief, to-spec et to-tickets sont copiés, nextjs reste, le lock ne contient pas spec-workflow (un lien n'est jamais verrouillé), et le snippet to-tickets revient.",
           test(api) {
             const files = presence(api.target, specSkills.flatMap(skillRels));
             const next = presence(api.target, skillRels("nextjs-app-structure"));
@@ -1186,11 +1242,11 @@ function buildSteps() {
             const ok =
               files.ok &&
               next.ok &&
-              locked?.source === api.toolbelt &&
+              !locked &&
               text.includes("If the `to-tickets` skill is available");
             return {
               ok,
-              actual: `${files.actual}; source=${locked?.source ?? "absente"}`,
+              actual: `${files.actual}; dansLeLock=${Boolean(locked)}`,
             };
           },
         },
@@ -1206,7 +1262,7 @@ function buildSteps() {
         {
           id: "link-dropped-files-kept",
           expected:
-            "Le lien spec-workflow est retiré, nextjs reste lié, les skills restent, et l'entrée du lock reste (keep-files ne la retire pas).",
+            "Le lien spec-workflow est retiré, nextjs reste lié, et les skills restent sur le disque (keep-files). Le lock ne l'a jamais contenu.",
           test(api) {
             const command = lastCommand(api);
             const localNames = pluginNames(readLocal(api.target));
@@ -1217,7 +1273,7 @@ function buildSteps() {
               commandText(command).includes("kept installed files") &&
               !localNames.includes("spec-workflow") &&
               localNames.includes("nextjs-app-structure") &&
-              Boolean(locked) &&
+              !locked &&
               files.ok;
             return {
               ok,
@@ -1340,7 +1396,7 @@ function buildSteps() {
         {
           id: "namespaced-mcp",
           expected:
-            "Le skill notes v1 est installé. Les deux fichiers MCP gardent le serveur utilisateur et gagnent la clé deck__example_mcp-kit__notes__notes. La requête ne contient pas notes.",
+            "Le skill notes v1 est installé. Les deux fichiers MCP gardent le serveur utilisateur et gagnent la clé deck__notes__notes (deck__<id>__<serveur>). La requête ne contient pas notes.",
           test(api) {
             const skill = readText(api.target, ".claude/skills/notes/SKILL.md");
             const cursorSkill = readText(api.target, ".cursor/skills/notes/SKILL.md");
@@ -1352,8 +1408,8 @@ function buildSteps() {
               skill === "# notes v1\n" &&
               cursorSkill === "# notes v1\n" &&
               !requested.includes("notes") &&
-              linked?.marketplace === "example/mcp-kit" &&
-              linked?.from === api.fixture &&
+              linked?.source === `local:${api.fixture}` &&
+              linked?.plugin === "notes" &&
               claude.mcpServers?.["user-notes"]?.args?.[0] === "keep-me" &&
               cursor.mcpServers?.["user-cursor"]?.args?.[0] === "cursor-keep" &&
               claude.mcpServers?.[MCP_KEY]?.args?.[0] === "notes" &&
@@ -1431,12 +1487,12 @@ function buildSteps() {
       checks: [
         {
           id: "rejected",
-          expected: "Code non nul, message `Invalid link`, pas de fichier local.",
+          expected: "Code non nul, message `is not a directory`, pas de fichier local.",
           test(api) {
             const command = lastCommand(api);
             const text = commandText(command);
             const localGone = !has(api.target, LOCAL_FILE);
-            const ok = command?.exitCode !== 0 && text.includes("Invalid link") && localGone;
+            const ok = command?.exitCode !== 0 && text.includes("is not a directory") && localGone;
             return { ok, actual: `exit=${command?.exitCode} local=${localGone ? "absent" : "présent"} ${text.trim()}` };
           },
         },
@@ -1444,23 +1500,31 @@ function buildSteps() {
     },
     {
       id: "link-no-origin",
-      action: "deck link <checkout sans origin>@demo",
+      action: "deck link <checkout sans origin ni commit>, puis deck unlink no-origin",
       run(api) {
         const dir = path.join(api.target, "fixtures", "no-origin");
         fs.mkdirSync(dir, { recursive: true });
         gitIn(dir, ["init", "-b", "main"]);
-        api.deck(["link", `${dir}@demo`]);
+        writeRel(dir, "skills/draft-skill/SKILL.md", "---\nname: draft-skill\ndescription: draft\n---\n# draft\n");
+        api.deck(["link", dir]);
+        api.linkedPlain = presence(api.target, skillRels("draft-skill"));
+        api.deck(["unlink", "no-origin"]);
       },
       checks: [
         {
-          id: "rejected",
-          expected: "Code non nul, message `origin`, pas de fichier local.",
+          id: "linked-then-unlinked",
+          expected:
+            "Un dossier de skills sans origin ni commit se lie (id = nom du dossier) : draft-skill est copié. unlink le retire et supprime le fichier local.",
           test(api) {
-            const command = lastCommand(api);
-            const text = commandText(command);
+            const link = commandNamed(api, "link");
+            const unlink = commandNamed(api, "unlink");
+            const gone = absence(api.target, skillRels("draft-skill"));
             const localGone = !has(api.target, LOCAL_FILE);
-            const ok = command?.exitCode !== 0 && text.includes("origin") && localGone;
-            return { ok, actual: `exit=${command?.exitCode} local=${localGone ? "absent" : "présent"} ${text.trim()}` };
+            const ok = link?.exitCode === 0 && api.linkedPlain.ok && unlink?.exitCode === 0 && gone.ok && localGone;
+            return {
+              ok,
+              actual: `link=${link?.exitCode} copié: ${api.linkedPlain.actual}; unlink=${unlink?.exitCode} ${gone.actual}; local=${localGone ? "absent" : "présent"}`,
+            };
           },
         },
       ],
@@ -1615,21 +1679,71 @@ function buildSteps() {
       },
       checks: [
         {
-          id: "request-written-lock-not",
+          id: "nothing-written",
           expected:
-            "Code non nul. La requête contient déjà no-such-plugin (écrite avant la copie) et le lock ne le contient pas.",
+            "Code non nul, message qui liste les plugins disponibles. Comme npm install, add n'écrit rien quand la résolution échoue : ni la requête, ni le lock, ni .deck/plugins/no-such-plugin.",
           test(api) {
             const command = lastCommand(api);
+            const text = commandText(command);
             const requested = pluginNames(readRequest(api.target));
             const locked = pluginNames(readLock(api.target));
+            const materialized = has(api.target, ".deck/plugins/no-such-plugin");
             const ok =
               command?.exitCode !== 0 &&
-              requested.includes("no-such-plugin") &&
-              !locked.includes("no-such-plugin");
+              text.includes("Available: ") &&
+              !requested.includes("no-such-plugin") &&
+              !locked.includes("no-such-plugin") &&
+              !materialized;
             return {
               ok,
-              actual: `exit=${command?.exitCode} requête=${requested.join(", ")} lock=${locked.join(", ")} ${(command?.stderr || "").trim()}`,
+              actual: `exit=${command?.exitCode} requête=${requested.join(", ")} lock=${locked.join(", ")} deck=${materialized} ${text.trim()}`,
             };
+          },
+        },
+      ],
+    },
+    {
+      id: "doctor-healthy",
+      action: "deck doctor",
+      run(api) {
+        api.deck(["doctor"]);
+      },
+      checks: [
+        {
+          id: "no-errors",
+          expected:
+            "deck doctor quitte avec le code 0 : la requête, le lock, .deck/ et les fichiers installés concordent. Les orphelins handoff (keep-files) ne sont plus suivis et ne comptent pas.",
+          test(api) {
+            const command = lastCommand(api);
+            const out = command?.stdout ?? "";
+            const ok = command?.exitCode === 0 && out.includes("✔") && !out.includes("✖");
+            return { ok, actual: `exit=${command?.exitCode} ${out.trim()}` };
+          },
+        },
+      ],
+    },
+    {
+      id: "frozen-reproduces",
+      action: "Copier ai-plugin.json et ai-plugin.lock.json dans un dossier vide, puis deck install --frozen",
+      run(api) {
+        const clone = path.join(api.target, "fixtures", "clone");
+        fs.mkdirSync(clone, { recursive: true });
+        fs.copyFileSync(path.join(api.target, REQUEST_FILE), path.join(clone, REQUEST_FILE));
+        fs.copyFileSync(path.join(api.target, LOCK_FILE), path.join(clone, LOCK_FILE));
+        api.clone = clone;
+        api.deck(["install", "--frozen"], clone);
+      },
+      checks: [
+        {
+          id: "same-lock-same-files",
+          expected:
+            "install --frozen quitte avec le code 0, réécrit un lock identique octet pour octet, et installe les mêmes skills (commit, npm-publish-setup).",
+          test(api) {
+            const command = lastCommand(api);
+            const same = readText(api.clone, LOCK_FILE) === readText(api.target, LOCK_FILE);
+            const files = presence(api.clone, ["commit", "npm-publish-setup"].flatMap(skillRels));
+            const ok = command?.exitCode === 0 && same && files.ok;
+            return { ok, actual: `exit=${command?.exitCode} lockIdentique=${same} ${files.actual} ${(command?.stderr || "").trim()}` };
           },
         },
       ],
@@ -1645,16 +1759,19 @@ function createApi(target, sha, options) {
     sha,
     toolbelt: options.toolbelt,
     commands,
-    deck(args) {
-      const result = spawnSync(process.execPath, [options.deck, ...args, "--project", target], {
+    deck(args, project = target) {
+      const result = spawnSync(process.execPath, [options.deck, ...args, "--project", project], {
         encoding: "utf8",
         env: {
           ...process.env,
           [localKey]: options.toolbelt,
+          // Copy mode for Claude too: the run must not depend on, or change, the user's claude CLI.
+          DECK_CLAUDE_BIN: "/nonexistent/claude",
+          DECK_CACHE: path.join(target, ".deck-cache"),
         },
       });
       const record = {
-        argv: ["deck", ...args, "--project", target],
+        argv: ["deck", ...args, "--project", project],
         exitCode: result.status ?? 1,
         stdout: result.stdout ?? "",
         stderr: result.stderr ?? "",

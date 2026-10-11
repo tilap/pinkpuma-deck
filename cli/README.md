@@ -22,7 +22,7 @@ npx @pinkpuma/deck --help
 | Command                                                                                 | Effect                                                                         |
 | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `init`                                                                                  | Create an empty `ai-plugin.json`                                               |
-| `add <source> [--ref] [--plugin] [--skill <name>]… [--path] [--id] [--sha256] [--no-sync]` | Add the request, resolve it, install it, and lock it                           |
+| `add <source> [--ref] [--plugin] [--skill <name>]… [--path] [--id] [--sha256] [--no-sync]` | Resolve, install, and lock; the request is written only if that succeeds      |
 | `remove <id> [--keep-files]`                                                            | Drop the request, its normalized tree, its installed files, and its lock entry |
 | `install [--frozen]` (alias `sync`)                                                     | Make the project match `ai-plugin.json`, pinned by the lock                    |
 | `update [<id>…]`                                                                        | Resolve refs again (all, or the ids given) and rewrite the lock                |
@@ -172,8 +172,8 @@ exists, deck lists `.deck/` and `ai-plugin.local.json` in it and removes the
 
 ## Developing a plugin
 
-`link` installs a local checkout, uncommitted files included, without touching
-`ai-plugin.json` or the lock. The link lives in `ai-plugin.local.json` and replaces a
+`link` installs a local folder — a git checkout (uncommitted files included, `.gitignore`
+respected) or any directory of skills — without touching `ai-plugin.json` or the lock. The link lives in `ai-plugin.local.json` and replaces a
 committed request with the same id.
 
 ```bash
