@@ -131,16 +131,6 @@ npx @pinkpuma/deck profile use builder --project /path/to/app
 
 See [cli/README.md](cli/README.md#profiles).
 
-**Author a new marketplace** — empty repo layout (no plugins yet):
-
-```bash
-npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
-npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name" --dir /path/to/parent
-```
-
-Creates `<dir>/<name>/` with `.claude-plugin/marketplace.json`, empty `plugins/`,
-`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. See [cli/README.md](cli/README.md).
-
 When changing the CLI:
 
 ```bash

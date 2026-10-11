@@ -49,11 +49,6 @@ did not write), and `--help`. An option a command does not take is refused.
 Advanced options: `add --id <id> --path <dir in source> --sha256 <hex> --no-install`,
 `remove --keep-files` and `unlink --keep-files`, `link --id <id> --path <dir> --no-install`.
 
-Deprecated, kept for one version with a notice: `init` (`add` creates the file), `sync`
-and `apply` (`install`), `list` and `doctor` (`status`), `add --plugin` (write
-`<source>@<plugin>`), `--no-sync` (`--no-install`), `--agents-md` / `--no-agents-md` (the
-`agentsMd` setting), and `scaffold` (an authoring tool, leaving deck).
-
 ## Profiles
 
 A profile is an agent role — builder, tester, reviewer — with its own prompt and plugins,

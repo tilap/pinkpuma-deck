@@ -18,12 +18,12 @@ test("parseAddSpec reads a GitHub marketplace plugin", () => {
   });
 });
 
-test("parseAddSpec reads a bare repository and the legacy owner/repo/plugin form", () => {
+test("parseAddSpec reads a bare repository, and refuses the owner/repo/plugin form", () => {
   assert.deepEqual(parseAddSpec("vercel-labs/agent-skills"), {
     id: "agent-skills",
     source: "github:vercel-labs/agent-skills",
   });
-  assert.equal(parseAddSpec("acme/kit/demo").plugin, "demo");
+  assert.throws(() => parseAddSpec("acme/kit/demo"), /Cannot read/);
 });
 
 test("parseAddSpec turns github URLs into github sources and keeps other hosts as git", () => {
@@ -33,7 +33,7 @@ test("parseAddSpec turns github URLs into github sources and keeps other hosts a
     ref: "v1.2.0",
   });
   assert.deepEqual(parseAddSpec("git@github.com:acme/kit.git"), { id: "kit", source: "github:acme/kit" });
-  assert.deepEqual(parseAddSpec("git+https://gitlab.com/team/tools.git#main", { plugin: "fmt" }), {
+  assert.deepEqual(parseAddSpec("git+https://gitlab.com/team/tools.git#main@fmt"), {
     id: "fmt",
     source: "git:https://gitlab.com/team/tools.git",
     plugin: "fmt",

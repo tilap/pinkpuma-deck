@@ -11,7 +11,6 @@ import {
   deleteLocalPlugins,
   emptyLocalPlugins,
   emptyPlugins,
-  ensurePlugins,
   parseLinkSpec,
   readLocalPlugins,
   readPlugins,
@@ -22,7 +21,6 @@ import {
 } from "./plugins.mjs";
 import { clearProfile, createProfile, useProfile } from "./profiles.mjs";
 import { PROFILES_DIR, listProfiles, loadProject, profileDir } from "./project.mjs";
-import { scaffoldMarketplace } from "./scaffold.mjs";
 import { defaultId, normalizeRequest, parseAddSpec } from "./sources/spec.mjs";
 import { status } from "./status.mjs";
 
@@ -66,33 +64,22 @@ Settings in ai-plugin.json:
   "agentsMd": false        do not write the Skills block in AGENTS.md
 `;
 
-const VALUE_FLAGS = new Set(["ref", "profile", "id", "path", "sha256", "plugin", "owner", "dir"]);
-const BOOL_FLAGS = new Set(["frozen", "force", "keep-files", "no-install", "no-sync", "no-agents-md", "agents-md", "help"]);
-const GLOBAL_FLAGS = ["force", "help", "no-agents-md", "agents-md"];
+const VALUE_FLAGS = new Set(["ref", "profile", "id", "path", "sha256"]);
+const BOOL_FLAGS = new Set(["frozen", "force", "keep-files", "no-install", "help"]);
+const GLOBAL_FLAGS = ["force", "help"];
 
 /** Flags each command takes, besides the global ones. */
 const COMMANDS = {
-  add: ["ref", "skill", "profile", "id", "path", "sha256", "no-install", "plugin", "no-sync"],
+  add: ["ref", "skill", "profile", "id", "path", "sha256", "no-install"],
   remove: ["profile", "keep-files"],
   install: ["frozen"],
   update: ["profile"],
   status: [],
   outdated: [],
-  link: ["id", "skill", "path", "no-install", "no-sync"],
+  link: ["id", "skill", "path", "no-install"],
   unlink: ["keep-files"],
   profile: [],
-  // Deprecated commands, kept for one version.
-  init: [],
-  sync: ["frozen"],
-  apply: ["frozen"],
-  list: [],
-  doctor: [],
-  scaffold: ["owner", "dir"],
 };
-
-function deprecated(message) {
-  console.error(`deck: ${message}`);
-}
 
 function parseArgs(argv) {
   const args = { _: [], flags: new Map(), skills: [], project: process.cwd() };
@@ -121,7 +108,7 @@ function parseArgs(argv) {
       args.flags.set("skill", true);
     } else if (VALUE_FLAGS.has(name)) {
       const v = argv[++i];
-      if (v === undefined || (v.startsWith("--") && name !== "owner")) throw new Error(`--${name} needs a value`);
+      if (v === undefined || v.startsWith("--")) throw new Error(`--${name} needs a value`);
       args.flags.set(name, v);
     } else if (BOOL_FLAGS.has(name)) {
       args.flags.set(name, true);
@@ -138,12 +125,6 @@ function checkFlags(cmd, args) {
   for (const name of args.flags.keys()) {
     if (!allowed.has(name)) throw new Error(`deck ${cmd} does not take --${name}`);
   }
-}
-
-/** `owner/repo@plugin` (deck <= 0.6) still names a plugin by its id. */
-function idFromArg(arg) {
-  const legacy = arg.match(/^[\w.-]+\/[\w.-]+@([^@/]+)$/);
-  return legacy ? legacy[1] : arg;
 }
 
 function describe(entry) {
@@ -211,11 +192,8 @@ async function lockProfile(root, profile, requests, { update = false } = {}) {
 
 async function cmdAdd(root, args, rest) {
   const profile = args.flags.get("profile");
-  if (args.flags.has("plugin")) deprecated("--plugin is deprecated: write <source>@<plugin>.");
-  if (args.flags.has("no-sync")) deprecated("--no-sync is deprecated: use --no-install.");
   const request = parseAddSpec(rest[0], {
     ref: args.flags.get("ref"),
-    plugin: args.flags.get("plugin"),
     path: args.flags.get("path"),
     id: args.flags.get("id"),
     sha256: args.flags.get("sha256"),
@@ -225,7 +203,7 @@ async function cmdAdd(root, args, rest) {
   const doc = addPlugin(readPlugins(dir) ?? emptyPlugins(), request);
   const where = profile ? `profile ${profile}` : PLUGINS_FILE;
 
-  if (args.flags.has("no-install") || args.flags.has("no-sync")) {
+  if (args.flags.has("no-install")) {
     writePlugins(dir, doc);
     console.log(`Added ${request.id} to ${where} (not installed)`);
     return;
@@ -258,7 +236,7 @@ async function cmdAdd(root, args, rest) {
 
 async function cmdRemove(root, args, rest) {
   if (!rest[0]) throw new Error("remove needs a plugin id");
-  const id = idFromArg(rest[0]);
+  const id = rest[0];
   const profile = args.flags.get("profile");
   const dir = targetDir(root, profile);
   const doc = readPlugins(dir);
@@ -279,7 +257,7 @@ async function cmdRemove(root, args, rest) {
 }
 
 async function cmdUpdate(root, args, rest) {
-  const ids = rest.map(idFromArg);
+  const ids = rest;
   const profile = args.flags.get("profile");
   const active = loadProject(root).profile;
   if (profile && profile !== active) {
@@ -327,7 +305,6 @@ function cmdOutdated(root) {
 
 async function cmdLink(root, args, rest) {
   if (!rest[0]) throw new Error("link needs <folder>[@<plugin>]");
-  if (args.flags.has("no-sync")) deprecated("--no-sync is deprecated: use --no-install.");
   const { checkout, name } = parseLinkSpec(rest[0]);
   const from = path.resolve(checkout);
   if (!fs.existsSync(from) || !fs.statSync(from).isDirectory()) {
@@ -341,7 +318,7 @@ async function cmdLink(root, args, rest) {
     ...(args.flags.get("path") ? { path: args.flags.get("path") } : {}),
   });
   const local = addLocalPlugin(readLocalPlugins(root) ?? emptyLocalPlugins(), request);
-  if (args.flags.has("no-install") || args.flags.has("no-sync")) {
+  if (args.flags.has("no-install")) {
     writeLocalPlugins(root, local);
     console.log(`Linked ${request.id} from ${from} (${LOCAL_PLUGINS_FILE}, not installed)`);
     return;
@@ -358,7 +335,7 @@ async function cmdLink(root, args, rest) {
 
 async function cmdUnlink(root, args, rest) {
   if (!rest[0]) throw new Error("unlink needs a plugin id");
-  const id = idFromArg(rest[0]);
+  const id = rest[0];
   const local = readLocalPlugins(root);
   if (!local) throw new Error(`No ${LOCAL_PLUGINS_FILE}`);
   const nextLocal = removeLocalPlugin(local, id);
@@ -421,16 +398,6 @@ async function cmdProfile(root, args, rest) {
   }
 }
 
-/** --agents-md / --no-agents-md used to toggle the lock; the setting now lives in ai-plugin.json. */
-function applyAgentsMdFlag(root, args) {
-  const on = args.flags.has("agents-md");
-  const off = args.flags.has("no-agents-md");
-  if (!on && !off) return;
-  deprecated(`--${off ? "no-" : ""}agents-md is deprecated: set "agentsMd": ${!off} in ${PLUGINS_FILE}. Done for you.`);
-  const doc = ensurePlugins(root);
-  writePlugins(root, { ...doc, agentsMd: !off });
-}
-
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const [cmd, ...rest] = args._;
@@ -441,7 +408,6 @@ async function main() {
   if (!(cmd in COMMANDS)) throw new Error(`Unknown command: ${cmd}\n\n${USAGE}`);
   checkFlags(cmd, args);
   const root = args.project;
-  applyAgentsMdFlag(root, args);
 
   switch (cmd) {
     case "add":
@@ -462,34 +428,6 @@ async function main() {
       return cmdUnlink(root, args, rest);
     case "profile":
       return cmdProfile(root, args, rest);
-
-    // Deprecated, kept for one version.
-    case "init": {
-      deprecated(`"init" is deprecated: deck add creates ${PLUGINS_FILE}.`);
-      const doc = ensurePlugins(root);
-      console.log(`Wrote ${PLUGINS_FILE} (${doc.plugins.length} plugins)`);
-      return;
-    }
-    case "sync":
-    case "apply":
-      deprecated(`"${cmd}" is deprecated: use deck install.`);
-      return install(root, { frozen: args.flags.has("frozen"), force: args.flags.has("force") });
-    case "list":
-    case "doctor":
-      deprecated(`"${cmd}" is deprecated: use deck status.`);
-      return cmdStatus(root);
-    case "scaffold": {
-      deprecated(`"scaffold" is deprecated and leaves deck in the next version (it is an authoring tool).`);
-      if (!rest[0]) throw new Error("scaffold requires <name>");
-      if (!args.flags.has("owner")) throw new Error("scaffold requires --owner <name>");
-      const { root: created } = scaffoldMarketplace({
-        name: rest[0],
-        owner: args.flags.get("owner"),
-        parentDir: args.flags.has("dir") ? path.resolve(args.flags.get("dir")) : process.cwd(),
-      });
-      console.log(`Created marketplace at ${created}`);
-      return;
-    }
   }
 }
 

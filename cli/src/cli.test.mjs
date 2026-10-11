@@ -78,22 +78,12 @@ test("options a command does not take are refused", () => {
   assert.match(deck(root, "nope").err, /Unknown command: nope/);
 });
 
-test("deprecated commands and flags still work and say what replaces them", () => {
-  const repo = market();
+test("old commands and options are gone", () => {
   const root = tmp("deck-cli-");
-  const init = deck(root, "init");
-  assert.equal(init.code, 0);
-  assert.match(init.err, /"init" is deprecated/);
-
-  const add = deck(root, "add", `git+${repo.url}`, "--plugin", "base-kit");
-  assert.equal(add.code, 0, add.err);
-  assert.match(add.err, /--plugin is deprecated/);
-
-  const sync = deck(root, "sync", "--no-agents-md");
-  assert.equal(sync.code, 0, sync.err);
-  assert.match(sync.err, /"sync" is deprecated: use deck install/);
-  assert.equal(readJson(path.join(root, "ai-plugin.json")).agentsMd, false);
-
-  assert.match(deck(root, "list").err, /"list" is deprecated: use deck status/);
-  assert.match(deck(root, "doctor").err, /"doctor" is deprecated: use deck status/);
+  for (const cmd of ["init", "sync", "apply", "list", "doctor", "scaffold"]) {
+    assert.match(deck(root, cmd).err, new RegExp(`Unknown command: ${cmd}`));
+  }
+  for (const flag of ["--plugin", "--no-sync", "--agents-md", "--no-agents-md"]) {
+    assert.match(deck(root, "install", flag, ...(flag === "--plugin" ? ["x"] : [])).err, new RegExp(`Unknown option: ${flag}`));
+  }
 });

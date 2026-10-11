@@ -133,14 +133,13 @@ export function defaultId({ source, plugin, path }) {
  *
  *   owner/repo@plugin            plugin from a GitHub marketplace
  *   owner/repo                   single plugin, or a skills repository
- *   owner/repo/plugin            legacy form of owner/repo@plugin
  *   https://github.com/o/r       same as o/r
  *   git+<url>[#ref]              any git host
  *   git@host:o/r.git[#ref]       ssh git URL
  *   npm:<package>[@version]      npm package
  *   https://….zip | .tar.gz      archive
  *
- * Flags: { ref, plugin, skills, path, id, sha256 } override what the spec says.
+ * Flags: { ref, skills, path, id, sha256 } override what the spec says.
  * @returns {Request}
  */
 export function parseAddSpec(spec, flags = {}) {
@@ -178,13 +177,10 @@ export function parseAddSpec(spec, flags = {}) {
     };
   } else {
     const at = spec.match(/^([\w.-]+\/[\w.-]+)@([^@/]+)$/);
-    const parts = spec.split("/");
     if (at) {
       request = { source: `github:${at[1]}`, plugin: at[2] };
-    } else if (parts.length === 2 && GITHUB_REPO.test(spec)) {
+    } else if (GITHUB_REPO.test(spec)) {
       request = { source: `github:${spec}` };
-    } else if (parts.length >= 3 && GITHUB_REPO.test(`${parts[0]}/${parts[1]}`)) {
-      request = { source: `github:${parts[0]}/${parts[1]}`, plugin: parts.slice(2).join("/") };
     } else {
       throw new Error(
         `Cannot read "${spec}". Use owner/repo@plugin, owner/repo, git+<url>, npm:<package>, or an https .zip URL`,
@@ -192,7 +188,7 @@ export function parseAddSpec(spec, flags = {}) {
     }
   }
 
-  for (const key of ["ref", "plugin", "path", "sha256"]) {
+  for (const key of ["ref", "path", "sha256"]) {
     if (flags[key]) request[key] = flags[key];
   }
   if (flags.skills?.length) request.skills = flags.skills;

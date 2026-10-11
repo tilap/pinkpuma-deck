@@ -27,9 +27,6 @@ npx @pinkpuma/deck profile use builder # switch agent profile (see cli/README.md
 
 # install a plugin you are editing, without changing ai-plugin.json
 npx @pinkpuma/deck link /path/to/marketplace@plugin-name
-
-# author a new marketplace repo
-npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
 ```
 
 ## Install (agent plugins)

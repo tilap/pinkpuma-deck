@@ -281,8 +281,12 @@ function commandText(command) {
   return `${command?.stdout ?? ""}\n${command?.stderr ?? ""}`;
 }
 
+function readRequestText(target) {
+  return has(target, REQUEST_FILE) ? readText(target, REQUEST_FILE) : null;
+}
+
 function requestUnchanged(api) {
-  return readText(api.target, REQUEST_FILE) === api.requestBefore;
+  return readRequestText(api.target) === api.requestBefore;
 }
 
 /** The AGENTS.md setting lives in ai-plugin.json; the lock mirrors it. */
@@ -327,36 +331,10 @@ function buildSteps() {
       ],
     },
     {
-      id: "init-deprecated",
-      action: "deck init (obsolète)",
-      run(api) {
-        api.deck(["init"]);
-      },
-      checks: [
-        {
-          id: "still-works-with-notice",
-          expected:
-            "Code 0, stderr annonce que `init` est obsolète (deck add crée ai-plugin.json). La requête est vide, sans lock ni .gitignore.",
-          test(api) {
-            const command = lastCommand(api);
-            const doc = readRequest(api.target);
-            const ok =
-              command?.exitCode === 0 &&
-              command.stderr.includes('"init" is deprecated') &&
-              Array.isArray(doc.plugins) &&
-              doc.plugins.length === 0 &&
-              !has(api.target, LOCK_FILE) &&
-              !has(api.target, ".gitignore");
-            return { ok, actual: `exit=${command?.exitCode} stderr=${command?.stderr.trim()} plugins=${doc.plugins?.length}` };
-          },
-        },
-      ],
-    },
-    {
       id: "unknown-command",
       action: "deck nope",
       run(api) {
-        api.requestBefore = readText(api.target, REQUEST_FILE);
+        api.requestBefore = readRequestText(api.target);
         api.deck(["nope"]);
       },
       checks: [
@@ -377,7 +355,7 @@ function buildSteps() {
       id: "add-invalid-spec",
       action: "deck add not-a-spec",
       run(api) {
-        api.requestBefore = readText(api.target, REQUEST_FILE);
+        api.requestBefore = readRequestText(api.target);
         api.deck(["add", "not-a-spec"]);
       },
       checks: [
@@ -557,7 +535,7 @@ function buildSteps() {
       id: "add-dev-agents-refused",
       action: `deck add ${TOOLBELT_REPO}@dev-agents`,
       run(api) {
-        api.requestBefore = readText(api.target, REQUEST_FILE);
+        api.requestBefore = readRequestText(api.target);
         api.deck(["add", pluginId("dev-agents")]);
       },
       checks: [
@@ -770,16 +748,16 @@ function buildSteps() {
       ],
     },
     {
-      id: "add-slash-spec",
-      action: `deck add ${TOOLBELT_REPO}/spec-workflow`,
+      id: "add-spec",
+      action: `deck add ${TOOLBELT_REPO}@spec-workflow`,
       run(api) {
-        api.deck(["add", `${TOOLBELT_REPO}/spec-workflow`]);
+        api.deck(["add", pluginId("spec-workflow")]);
       },
       checks: [
         {
           id: "parsed-and-copied",
           expected:
-            "La forme owner/repo/plugin ajoute spec-workflow (même requête que owner/repo@plugin) et copie to-brief, to-spec et to-tickets.",
+            "spec-workflow est demandé et to-brief, to-spec et to-tickets sont copiés.",
           test(api) {
             const requested = findPlugin(readRequest(api.target), "spec-workflow");
             const files = presence(api.target, specSkills.flatMap(skillRels));
@@ -802,10 +780,10 @@ function buildSteps() {
       ],
     },
     {
-      id: "remove-slash-spec",
-      action: `deck remove ${TOOLBELT_REPO}@spec-workflow`,
+      id: "remove-spec",
+      action: "deck remove spec-workflow",
       run(api) {
-        api.deck(["remove", pluginId("spec-workflow")]);
+        api.deck(["remove", "spec-workflow"]);
       },
       checks: [
         {
@@ -940,9 +918,9 @@ function buildSteps() {
     },
     {
       id: "remove-dev-agents",
-      action: `deck remove ${TOOLBELT_REPO}@dev-agents`,
+      action: "deck remove dev-agents",
       run(api) {
-        api.deck(["remove", pluginId("dev-agents")]);
+        api.deck(["remove", "dev-agents"]);
       },
       checks: [
         {
@@ -967,9 +945,9 @@ function buildSteps() {
     },
     {
       id: "remove-handoff-keep-files",
-      action: `deck remove ${TOOLBELT_REPO}@handoff --keep-files`,
+      action: "deck remove handoff --keep-files",
       run(api) {
-        api.deck(["remove", pluginId("handoff"), "--keep-files"]);
+        api.deck(["remove", "handoff", "--keep-files"]);
       },
       checks: [
         {
@@ -1037,10 +1015,10 @@ function buildSteps() {
     },
     {
       id: "remove-unknown",
-      action: `deck remove ${TOOLBELT_REPO}@does-not-exist`,
+      action: "deck remove does-not-exist",
       run(api) {
-        api.requestBefore = readText(api.target, REQUEST_FILE);
-        api.deck(["remove", pluginId("does-not-exist")]);
+        api.requestBefore = readRequestText(api.target);
+        api.deck(["remove", "does-not-exist"]);
       },
       checks: [
         {
@@ -1060,7 +1038,7 @@ function buildSteps() {
       id: "link-nextjs",
       action: "deck link <toolbelt>@nextjs-app-structure",
       run(api) {
-        api.requestBefore = readText(api.target, REQUEST_FILE);
+        api.requestBefore = readRequestText(api.target);
         api.deck(["link", `${api.toolbelt}@nextjs-app-structure`]);
         api.deck(["status"]);
       },
@@ -1146,9 +1124,9 @@ function buildSteps() {
     },
     {
       id: "unlink-restores-committed",
-      action: `deck unlink ${TOOLBELT_REPO}@git-workflow`,
+      action: "deck unlink git-workflow",
       run(api) {
-        api.deck(["unlink", pluginId("git-workflow")]);
+        api.deck(["unlink", "git-workflow"]);
       },
       checks: [
         {
@@ -1238,9 +1216,9 @@ function buildSteps() {
     },
     {
       id: "unlink-spec-keep-files",
-      action: `deck unlink ${TOOLBELT_REPO}@spec-workflow --keep-files`,
+      action: "deck unlink spec-workflow --keep-files",
       run(api) {
-        api.deck(["unlink", pluginId("spec-workflow"), "--keep-files"]);
+        api.deck(["unlink", "spec-workflow", "--keep-files"]);
       },
       checks: [
         {
@@ -1301,9 +1279,9 @@ function buildSteps() {
     },
     {
       id: "unlink-nextjs",
-      action: `deck unlink ${TOOLBELT_REPO}@nextjs-app-structure`,
+      action: "deck unlink nextjs-app-structure",
       run(api) {
-        api.deck(["unlink", pluginId("nextjs-app-structure")]);
+        api.deck(["unlink", "nextjs-app-structure"]);
       },
       checks: [
         {
@@ -1433,9 +1411,9 @@ function buildSteps() {
     },
     {
       id: "unlink-mcp",
-      action: "deck unlink example/mcp-kit@notes",
+      action: "deck unlink notes",
       run(api) {
-        api.deck(["unlink", "example/mcp-kit@notes"]);
+        api.deck(["unlink", "notes"]);
       },
       checks: [
         {
@@ -1515,9 +1493,9 @@ function buildSteps() {
     },
     {
       id: "unlink-unknown",
-      action: `deck unlink ${TOOLBELT_REPO}@does-not-exist`,
+      action: "deck unlink does-not-exist",
       run(api) {
-        api.deck(["unlink", pluginId("does-not-exist")]);
+        api.deck(["unlink", "does-not-exist"]);
       },
       checks: [
         {
@@ -1528,129 +1506,6 @@ function buildSteps() {
             const text = commandText(command);
             const ok = command?.exitCode !== 0 && text.includes(`No ${LOCAL_FILE}`);
             return { ok, actual: `exit=${command?.exitCode} ${text.trim()}` };
-          },
-        },
-      ],
-    },
-    {
-      id: "scaffold",
-      action: 'deck scaffold sample-market --owner "Integration Tests" --dir <cible>/authored',
-      run(api) {
-        api.authored = path.join(api.target, "authored");
-        api.deck([
-          "scaffold",
-          "sample-market",
-          "--owner",
-          "Integration Tests",
-          "--dir",
-          api.authored,
-        ]);
-      },
-      checks: [
-        {
-          id: "marketplace-tree",
-          expected:
-            "Le dépôt créé a marketplace.json (nom, owner, plugins vides), plugins/.gitkeep, README, HOWTO, AGENTS.md et .gitignore, sans variable de template.",
-          test(api) {
-            const root = path.join(api.authored, "sample-market");
-            const market = readJson(root, ".claude-plugin/marketplace.json");
-            const agents = readText(root, "AGENTS.md");
-            const files = presence(root, [
-              "plugins/.gitkeep",
-              "README.md",
-              "HOWTO.md",
-              "AGENTS.md",
-              ".gitignore",
-            ]);
-            const ignore = readText(root, ".gitignore");
-            const ok =
-              files.ok &&
-              market.name === "sample-market" &&
-              market.owner?.name === "Integration Tests" &&
-              Array.isArray(market.plugins) &&
-              market.plugins.length === 0 &&
-              !agents.includes("{{NAME}}") &&
-              !agents.includes("{{OWNER}}") &&
-              agents.includes("Integration Tests") &&
-              agents.includes("sample-market") &&
-              ignore.includes("node_modules/");
-            return {
-              ok,
-              actual: `${files.actual}; name=${market.name} owner=${market.owner?.name} plugins=${market.plugins?.length}`,
-            };
-          },
-        },
-      ],
-    },
-    {
-      id: "scaffold-invalid-name",
-      action: "deck scaffold Bad_Name --owner Integration Tests",
-      run(api) {
-        api.deck(["scaffold", "Bad_Name", "--owner", "Integration Tests", "--dir", api.authored]);
-      },
-      checks: [
-        {
-          id: "rejected",
-          expected: "Code non nul, message `Invalid marketplace name`, aucun répertoire Bad_Name.",
-          test(api) {
-            const command = lastCommand(api);
-            const text = commandText(command);
-            const created = has(api.authored, "Bad_Name");
-            const ok = command?.exitCode !== 0 && text.includes("Invalid marketplace name") && !created;
-            return { ok, actual: `exit=${command?.exitCode} créé=${created} ${text.trim()}` };
-          },
-        },
-      ],
-    },
-    {
-      id: "scaffold-missing-owner",
-      action: "deck scaffold another-market",
-      run(api) {
-        api.deck(["scaffold", "another-market", "--dir", api.authored]);
-      },
-      checks: [
-        {
-          id: "rejected",
-          expected: "Code non nul, message `--owner`, aucun répertoire another-market.",
-          test(api) {
-            const command = lastCommand(api);
-            const text = commandText(command);
-            const created = has(api.authored, "another-market");
-            const ok = command?.exitCode !== 0 && text.includes("--owner") && !created;
-            return { ok, actual: `exit=${command?.exitCode} créé=${created} ${text.trim()}` };
-          },
-        },
-      ],
-    },
-    {
-      id: "scaffold-non-empty",
-      action: "deck scaffold sample-market une seconde fois",
-      run(api) {
-        api.deck([
-          "scaffold",
-          "sample-market",
-          "--owner",
-          "Integration Tests",
-          "--dir",
-          api.authored,
-        ]);
-      },
-      checks: [
-        {
-          id: "rejected",
-          expected: "Code non nul, message `not empty`, le marketplace déjà créé est intact.",
-          test(api) {
-            const command = lastCommand(api);
-            const text = commandText(command);
-            const market = readJson(
-              path.join(api.authored, "sample-market"),
-              ".claude-plugin/marketplace.json",
-            );
-            const ok =
-              command?.exitCode !== 0 &&
-              text.includes("not empty") &&
-              market.name === "sample-market";
-            return { ok, actual: `exit=${command?.exitCode} name=${market.name} ${text.trim()}` };
           },
         },
       ],
@@ -1820,36 +1675,25 @@ function buildSteps() {
       ],
     },
     {
-      id: "deprecated-commands",
-      action: "deck sync, deck list, deck doctor (obsolètes)",
+      id: "old-commands-gone",
+      action: "deck init, sync, list, doctor, scaffold ; deck status --frozen",
       run(api) {
-        api.deck(["sync"]);
-        api.deck(["list"]);
-        api.deck(["doctor"]);
+        for (const cmd of ["init", "sync", "list", "doctor", "scaffold"]) api.deck([cmd]);
+        api.deck(["status", "--frozen"]);
       },
       checks: [
         {
-          id: "still-work-with-notice",
-          expected: "Les trois commandes quittent avec le code 0 et indiquent sur stderr la commande qui les remplace (install, status).",
+          id: "refused",
+          expected:
+            "Les anciennes commandes sont inconnues (`Unknown command`) et une option qu'une commande ne prend pas est refusée (`deck status does not take --frozen`).",
           test(api) {
-            const [sync, list, doctor] = ["sync", "list", "doctor"].map((name) => commandNamed(api, name));
+            const old = ["init", "sync", "list", "doctor", "scaffold"].map((name) => commandNamed(api, name));
+            const status = commandNamed(api, "status");
             const ok =
-              sync?.exitCode === 0 &&
-              sync.stderr.includes("use deck install") &&
-              list?.exitCode === 0 &&
-              list.stderr.includes("use deck status") &&
-              doctor?.exitCode === 0 &&
-              doctor.stderr.includes("use deck status");
-            return { ok, actual: [sync, list, doctor].map((c) => `${c?.argv[1]}=${c?.exitCode} ${c?.stderr.trim()}`).join(" | ") };
-          },
-        },
-        {
-          id: "unknown-option-refused",
-          expected: "Une option qu'une commande ne prend pas est refusée (deck status --frozen).",
-          test(api) {
-            const r = spawnSync(process.execPath, [api.deckPath, "status", "--frozen", "--project", api.target], { encoding: "utf8" });
-            const ok = r.status === 1 && r.stderr.includes("deck status does not take --frozen");
-            return { ok, actual: `exit=${r.status} ${r.stderr.trim()}` };
+              old.every((c) => c?.exitCode === 1 && c.stderr.includes(`Unknown command: ${c.argv[1]}`)) &&
+              status?.exitCode === 1 &&
+              status.stderr.includes("deck status does not take --frozen");
+            return { ok, actual: [...old, status].map((c) => `${c?.argv[1]}=${c?.exitCode}`).join(" ") };
           },
         },
       ],
@@ -1864,7 +1708,6 @@ function createApi(target, sha, options) {
     target,
     sha,
     toolbelt: options.toolbelt,
-    deckPath: options.deck,
     commands,
     deck(args, project = target) {
       const result = spawnSync(process.execPath, [options.deck, ...args, "--project", project], {
