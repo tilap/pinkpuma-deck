@@ -162,8 +162,17 @@ export async function installOne(projectRoot, doc, request, lock, options = {}) 
   adoptLegacyState(state, lock);
   let current = lock ?? emptyLockfile();
   const pin = pinFor(current, request, options.update);
-  const { entry, built } = await resolveRequest(projectRoot, request, { pin, fetch: options.fetch });
-  const warnings = activate(projectRoot, request.id, built.dir, hostModes(doc), state, options.force);
+  let resolved;
+  let warnings;
+  try {
+    resolved = await resolveRequest(projectRoot, request, { pin, fetch: options.fetch });
+    warnings = activate(projectRoot, request.id, resolved.built.dir, hostModes(doc), state, options.force);
+  } catch (err) {
+    // A failed first install leaves nothing behind; a failed reinstall keeps the previous one.
+    if (!state.plugins[request.id]) removeMaterialized(projectRoot, request.id);
+    throw err;
+  }
+  const { entry, built } = resolved;
   if (!request.linked) current = upsertLockEntry(current, entry);
   persist(projectRoot, current, state);
   // AGENTS.md shows a linked plugin's snippets even though the lock does not hold it.

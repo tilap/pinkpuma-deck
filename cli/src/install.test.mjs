@@ -135,6 +135,15 @@ test("installOne and uninstallOne handle a single plugin", async () => {
   assert.deepEqual(readLockfile(root).plugins, []);
 });
 
+test("a failed first install leaves no normalized tree behind", async () => {
+  const repo = marketplaceRepo();
+  const root = project();
+  const request = { id: "nope", source: `git:${repo.url}`, plugin: "nope" };
+  await assert.rejects(installOne(root, { plugins: [request] }, request, null), /no plugin "nope"/);
+  assert.ok(!exists(root, ".deck/plugins/nope"));
+  assert.ok(!exists(root, "ai-plugin.lock.json"));
+});
+
 test("a linked working tree installs with uncommitted files and stays out of the lock", async () => {
   const repo = marketplaceRepo();
   writeTree(repo.dir, { "plugins/demo/skills/draft/SKILL.md": skill("draft") });

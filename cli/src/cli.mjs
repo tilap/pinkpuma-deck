@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import fs from "node:fs";
 import path from "node:path";
 import { doctor } from "./doctor.mjs";
 import { installAll, installOne, uninstallOne } from "./install.mjs";
@@ -183,12 +184,14 @@ async function main() {
     case "add": {
       const request = parseAddSpec(rest[0], args);
       const doc = addPlugin(ensurePlugins(root), request);
-      writePlugins(root, doc);
       if (!args.sync) {
+        writePlugins(root, doc);
         console.log(`Added ${request.id} to ${PLUGINS_FILE}`);
         break;
       }
+      // Like npm install: the request is written only once it resolved and installed.
       const result = await installOne(root, doc, request, loadLock(root, args.writeAgentsMd), options);
+      writePlugins(root, doc);
       console.log(`Added ${request.id}:`);
       printResult(result);
       break;
@@ -236,12 +239,19 @@ async function main() {
         break;
       }
       const lock = readLockfile(root);
+      const committed = readPlugins(root);
       for (const request of doc.plugins) {
         const entry = lock?.plugins.find((p) => p.id === request.id);
         const what = [request.source, request.plugin && `plugin=${request.plugin}`, request.ref && `ref=${request.ref}`]
           .filter(Boolean)
           .join("  ");
-        console.log(`${request.id}  ${what}${request.linked ? "  (linked)" : ""}`);
+        const overridden = request.linked ? committed?.plugins.find((p) => p.id === request.id) : null;
+        const link = !request.linked
+          ? ""
+          : overridden
+            ? `  (linked, overrides ${overridden.source}${overridden.ref ? `#${overridden.ref}` : ""})`
+            : "  (linked)";
+        console.log(`${request.id}  ${what}${link}`);
         if (entry) console.log(`  locked: ${describe(entry)}`);
         else if (!request.linked) console.log("  not locked yet — run deck install");
       }
@@ -282,14 +292,18 @@ async function main() {
         ...(args.skills.length ? { skills: args.skills } : {}),
         ...(args.path ? { path: args.path } : {}),
       });
+      if (!fs.existsSync(from) || !fs.statSync(from).isDirectory()) {
+        throw new Error(`Cannot link ${checkout}: ${from} is not a directory`);
+      }
       const local = addLocalPlugin(readLocalPlugins(root) ?? emptyLocalPlugins(), request);
-      writeLocalPlugins(root, local);
       if (!args.sync) {
+        writeLocalPlugins(root, local);
         console.log(`Linked ${request.id} from ${from} (${LOCAL_PLUGINS_FILE})`);
         break;
       }
-      const doc = readRequestedPlugins(root);
+      const doc = readRequestedPlugins(root) ?? { plugins: [] };
       const result = await installOne(root, doc, { ...request, linked: true }, loadLock(root, args.writeAgentsMd), options);
+      writeLocalPlugins(root, local);
       console.log(`Linked ${request.id} from ${from}:`);
       printResult({ ...result, linked: true });
       break;
