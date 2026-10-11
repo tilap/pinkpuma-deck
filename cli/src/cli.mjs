@@ -158,8 +158,8 @@ function describe(entry) {
   return `${entry.id}  ${parts.join(" ")}  ${r.type}:${where}`;
 }
 
-function printResult({ entry, warnings = [], linked }) {
-  console.log(`  ${describe(entry)}${linked ? "  (linked)" : ""}`);
+function printResult({ entry, warnings = [], linked, skipped }) {
+  console.log(`  ${describe(entry)}${linked ? "  (linked)" : ""}${skipped ? "  (up to date)" : ""}`);
   for (const warning of warnings) console.log(`    ! ${warning}`);
 }
 

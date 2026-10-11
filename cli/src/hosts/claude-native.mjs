@@ -15,12 +15,22 @@ import { DECK_DIR } from "../paths.mjs";
 
 export const MARKETPLACE = "deck";
 
-/** The `claude` executable, or null. `DECK_CLAUDE_BIN` overrides PATH. */
+let found;
+
+/** The `claude` executable, or null. `DECK_CLAUDE_BIN` overrides PATH. Looked up once per run. */
 export function claudeBin() {
   const explicit = process.env.DECK_CLAUDE_BIN;
   if (explicit) return fs.existsSync(explicit) ? explicit : null;
-  const r = spawnSync("claude", ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  return r.status === 0 ? "claude" : null;
+  if (found === undefined) {
+    const r = spawnSync("claude", ["--version"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
+    found = r.status === 0 ? "claude" : null;
+  }
+  return found;
+}
+
+/** Claude has this plugin enabled from the deck marketplace at local scope. */
+export function isEnabled(projectRoot, name) {
+  return localSettings(projectRoot).enabledPlugins?.[`${name}@${MARKETPLACE}`] === true;
 }
 
 function claude(bin, projectRoot, args) {
@@ -48,7 +58,10 @@ function localSettings(projectRoot) {
   }
 }
 
-/** Register `.deck/` as the `deck` marketplace at local scope, or refresh it. */
+/**
+ * Register `.deck/` as the `deck` marketplace at local scope, or refresh its
+ * catalog so a plugin added to it can be installed.
+ */
 export function ensureMarketplace(bin, projectRoot) {
   const deckDir = path.join(projectRoot, DECK_DIR);
   const known = localSettings(projectRoot).extraKnownMarketplaces?.[MARKETPLACE]?.source;
@@ -69,14 +82,10 @@ export function ensureMarketplace(bin, projectRoot) {
  * @param {string} name plugin manifest name (see materialize.pluginName)
  */
 export function nativeInstall(bin, projectRoot, name) {
+  // Already installed: Claude reads .deck/plugins/<id> in place, so new content needs no call.
+  if (isEnabled(projectRoot, name)) return;
   ensureMarketplace(bin, projectRoot);
   const id = `${name}@${MARKETPLACE}`;
-  const enabled = localSettings(projectRoot).enabledPlugins?.[id] === true;
-  if (enabled) {
-    // Already installed: the directory source is read in place; refresh its record.
-    const updated = claude(bin, projectRoot, ["plugin", "update", id, "--scope", "local"]);
-    if (updated.ok) return;
-  }
   must(claude(bin, projectRoot, ["plugin", "install", id, "--scope", "local"]), `claude plugin install ${id}`);
 }
 
@@ -86,12 +95,14 @@ export function nativeUninstall(bin, projectRoot, name) {
   claude(bin, projectRoot, ["plugin", "uninstall", id, "--scope", "local"]);
 }
 
-/** Unregister the deck marketplace once no plugin is installed from it. */
-export function releaseMarketplace(bin, projectRoot) {
+/** Unregister the deck marketplace once no plugin is installed from it. Reads settings before calling Claude. */
+export function releaseMarketplace(projectRoot) {
   const settings = localSettings(projectRoot);
   if (!settings.extraKnownMarketplaces?.[MARKETPLACE]) return false;
   const stillEnabled = Object.keys(settings.enabledPlugins ?? {}).some((id) => id.endsWith(`@${MARKETPLACE}`));
   if (stillEnabled) return false;
+  const bin = claudeBin();
+  if (!bin) return false;
   claude(bin, projectRoot, ["plugin", "marketplace", "remove", MARKETPLACE]);
   return true;
 }

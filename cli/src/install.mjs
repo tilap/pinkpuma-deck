@@ -1,9 +1,12 @@
 import { rewriteAgentsMd } from "./agents.mjs";
 import { ensureDeckGitignored } from "./gitignore.mjs";
-import { claudeBin, nativeInstall, nativeUninstall, releaseMarketplace } from "./hosts/claude-native.mjs";
+import fs from "node:fs";
+import path from "node:path";
+import { claudeBin, isEnabled, nativeInstall, nativeUninstall, releaseMarketplace } from "./hosts/claude-native.mjs";
 import { copyInstall, removeInstalledFiles } from "./hosts/copy.mjs";
 import { emptyLockfile, removeLockEntry, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
-import { materialize, pluginName, removeMaterialized, writeDeckMarketplace } from "./materialize.mjs";
+import { materialize, pluginName, removeMaterialized, treeIntegrity, writeDeckMarketplace } from "./materialize.mjs";
+import { deckPluginRel } from "./paths.mjs";
 import { fetchSource, pinDescriptor } from "./sources/fetch.mjs";
 import { locatePlugin } from "./sources/locate.mjs";
 import { descriptorFor, normalizeRequest, sameRequest } from "./sources/spec.mjs";
@@ -95,8 +98,32 @@ function effectiveModes(modes) {
   return { effective, warnings, bin };
 }
 
+/** One string per host mode, recorded in the state to notice a mode change. */
+function modesKey(effective) {
+  return Object.keys(effective)
+    .sort()
+    .map((host) => `${host}:${effective[host]}`)
+    .join(",");
+}
+
+/**
+ * Nothing to do for this plugin: the lock still pins it, and this machine
+ * already has that exact tree, activated the same way, with every file in place.
+ * Checked without fetching anything and without calling the claude CLI.
+ */
+function upToDate(projectRoot, request, pin, state, modes) {
+  if (!pin?.integrity || request.linked) return false;
+  const installed = state.plugins[request.id];
+  if (!installed || installed.integrity !== pin.integrity) return false;
+  if (installed.modes !== modesKey(effectiveModes(modes).effective)) return false;
+  if (!installed.paths.every((rel) => fs.existsSync(path.join(projectRoot, rel)))) return false;
+  if (installed.native?.includes("claude") && !isEnabled(projectRoot, pluginName(request.id))) return false;
+  const dir = path.join(projectRoot, deckPluginRel(request.id));
+  return fs.existsSync(dir) && treeIntegrity(dir) === pin.integrity;
+}
+
 /** Activate a normalized plugin for every host, natively or by copy. */
-function activate(projectRoot, id, pluginDir, modes, state, force) {
+function activate(projectRoot, id, pluginDir, modes, state, force, integrity) {
   const { effective, warnings, bin } = effectiveModes(modes);
   const previous = state.plugins[id];
   if (previous) {
@@ -110,7 +137,7 @@ function activate(projectRoot, id, pluginDir, modes, state, force) {
     .filter(([, mode]) => mode === "copy")
     .map(([host]) => host);
   const result = copyInstall(projectRoot, id, pluginDir, { hosts: copyHosts, state, previous, force });
-  const entry = { paths: result.paths, mcpKeys: result.mcpKeys };
+  const entry = { paths: result.paths, mcpKeys: result.mcpKeys, integrity, modes: modesKey(effective) };
   if (effective.claude === "native") {
     writeDeckMarketplace(projectRoot, new Set([...Object.keys(state.plugins), id]));
     nativeInstall(bin, projectRoot, pluginName(id));
@@ -143,10 +170,7 @@ function adoptLegacyState(state, lock) {
 
 function persist(projectRoot, lock, state) {
   const anyNative = Object.values(state.plugins).some((entry) => entry.native?.includes("claude"));
-  if (!anyNative) {
-    const bin = claudeBin();
-    if (bin) releaseMarketplace(bin, projectRoot);
-  }
+  if (!anyNative) releaseMarketplace(projectRoot);
   writeLockfile(projectRoot, lock);
   writeState(projectRoot, state);
   writeDeckMarketplace(projectRoot, Object.keys(state.plugins));
@@ -166,7 +190,15 @@ export async function installOne(projectRoot, doc, request, lock, options = {}) 
   let warnings;
   try {
     resolved = await resolveRequest(projectRoot, request, { pin, fetch: options.fetch });
-    warnings = activate(projectRoot, request.id, resolved.built.dir, hostModes(doc), state, options.force);
+    warnings = activate(
+      projectRoot,
+      request.id,
+      resolved.built.dir,
+      hostModes(doc),
+      state,
+      options.force,
+      resolved.built.integrity,
+    );
   } catch (err) {
     // A failed first install leaves nothing behind; a failed reinstall keeps the previous one.
     if (!state.plugins[request.id]) removeMaterialized(projectRoot, request.id);
@@ -237,12 +269,16 @@ export async function installAll(projectRoot, doc, lock, options = {}) {
   const linkedEntries = [];
   for (const request of doc.plugins) {
     const pin = pinFor(current, request, isUpdate(request.id));
+    if (upToDate(projectRoot, request, pin, state, hostModes(doc))) {
+      results.push({ entry: pin, warnings: [], pinned: true, linked: false, skipped: true });
+      continue;
+    }
     const { entry, built } = await resolveRequest(projectRoot, request, {
       pin,
       frozen: options.frozen,
       fetch: options.fetch,
     });
-    const warnings = activate(projectRoot, request.id, built.dir, hostModes(doc), state, options.force);
+    const warnings = activate(projectRoot, request.id, built.dir, hostModes(doc), state, options.force, built.integrity);
     if (request.linked) linkedEntries.push(entry);
     else current = upsertLockEntry(current, entry);
     persist(projectRoot, current, state);

@@ -112,8 +112,25 @@ async function fetchGit(descriptor) {
   return { root: dest, resolved: { type: "git", url: descriptor.url, sha } };
 }
 
-/** `npm pack` never runs the package's scripts; the tarball is unpacked as is. */
+const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+function npmCacheDir(name, version) {
+  return path.join(cacheRoot(), "npm", safeSegment(`${name}@${version}`));
+}
+
+/**
+ * `npm pack` never runs the package's scripts; the tarball is unpacked as is.
+ * An exact version already unpacked is reused without asking the registry.
+ */
 async function fetchNpm(descriptor) {
+  if (descriptor.version && EXACT_VERSION.test(descriptor.version)) {
+    const cached = npmCacheDir(descriptor.package, descriptor.version);
+    const record = path.join(cached, "resolved.json");
+    if (fs.existsSync(record)) {
+      const root = path.join(cached, "package");
+      return { root: fs.existsSync(root) ? root : cached, resolved: JSON.parse(fs.readFileSync(record, "utf8")) };
+    }
+  }
   const spec = descriptor.version ? `${descriptor.package}@${descriptor.version}` : descriptor.package;
   const work = fs.mkdtempSync(path.join(os.tmpdir(), "deck-npm-"));
   try {
@@ -121,30 +138,35 @@ async function fetchNpm(descriptor) {
     if (descriptor.registry) args.push("--registry", descriptor.registry);
     const out = JSON.parse(run("npm", args, { cwd: work }));
     const info = Array.isArray(out) ? out[0] : out;
-    const dest = path.join(
-      cacheRoot(),
-      "npm",
-      safeSegment(`${info.name}@${info.version}`),
-    );
+    const dest = npmCacheDir(info.name, info.version);
     fs.rmSync(dest, { recursive: true, force: true });
     fs.mkdirSync(dest, { recursive: true });
     run("tar", ["-xzf", path.join(work, info.filename), "-C", dest]);
     const root = path.join(dest, "package");
-    return {
-      root: fs.existsSync(root) ? root : dest,
-      resolved: {
-        type: "npm",
-        package: info.name,
-        version: info.version,
-        ...(info.integrity ? { integrity: info.integrity } : {}),
-      },
+    const resolved = {
+      type: "npm",
+      package: info.name,
+      version: info.version,
+      ...(info.integrity ? { integrity: info.integrity } : {}),
     };
+    fs.writeFileSync(path.join(dest, "resolved.json"), `${JSON.stringify(resolved)}\n`);
+    return { root: fs.existsSync(root) ? root : dest, resolved };
   } finally {
     fs.rmSync(work, { recursive: true, force: true });
   }
 }
 
 async function fetchArchive(descriptor) {
+  // A pinned digest already unpacked is reused without downloading.
+  if (descriptor.sha256) {
+    const pinned = path.join(cacheRoot(), "archive", descriptor.sha256.toLowerCase());
+    if (fs.existsSync(pinned)) {
+      return {
+        root: archiveRoot(pinned),
+        resolved: { type: "archive", url: descriptor.url, sha256: descriptor.sha256.toLowerCase() },
+      };
+    }
+  }
   const response = await fetch(descriptor.url, { redirect: "follow" });
   if (!response.ok) {
     throw new Error(`${descriptor.url}: HTTP ${response.status}`);

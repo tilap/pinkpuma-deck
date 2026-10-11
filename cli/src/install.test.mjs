@@ -248,11 +248,9 @@ test("Claude native mode registers .deck/ and installs each plugin from it", asy
     ]);
     assert.equal(readJson(path.join(deckDir, ".claude-plugin/marketplace.json")).plugins[0].name, "demo");
 
-    await installAll(root, { plugins: [request] }, readLockfile(root));
-    assert.deepEqual(fake.calls().slice(2), [
-      "plugin marketplace update deck",
-      "plugin update demo@deck --scope local",
-    ]);
+    const again = await installAll(root, { plugins: [request] }, readLockfile(root));
+    assert.equal(again.results[0].skipped, true);
+    assert.deepEqual(fake.calls().slice(2), [], "an unchanged plugin costs no claude call");
 
     await installAll(root, { plugins: [] }, readLockfile(root));
     assert.deepEqual(fake.calls().slice(-2), ["plugin uninstall demo@deck --scope local", "plugin marketplace remove deck"]);
@@ -265,5 +263,54 @@ test("Claude native mode registers .deck/ and installs each plugin from it", asy
     assert.ok(exists(root, ".claude/skills/hello"));
   } finally {
     process.env.DECK_CLAUDE_BIN = "/nonexistent/claude";
+  }
+});
+
+test("an unchanged plugin is skipped; a missing file, a mode change, or an edit reinstalls it", async () => {
+  const repo = marketplaceRepo();
+  const root = project();
+  const doc = { plugins: [{ id: "demo", source: `git:${repo.url}`, plugin: "demo" }] };
+  await installAll(root, doc, null);
+  const skip = await installAll(root, doc, readLockfile(root));
+  assert.equal(skip.results[0].skipped, true);
+
+  fs.rmSync(path.join(root, ".cursor/skills/hello"), { recursive: true });
+  const repaired = await installAll(root, doc, readLockfile(root));
+  assert.equal(repaired.results[0].skipped, undefined);
+  assert.ok(exists(root, ".cursor/skills/hello/SKILL.md"));
+
+  const offCursor = await installAll(root, { ...doc, hosts: { cursor: "off" } }, readLockfile(root));
+  assert.equal(offCursor.results[0].skipped, undefined);
+  assert.ok(!exists(root, ".cursor/skills/hello"));
+
+  fs.appendFileSync(path.join(root, ".deck/plugins/demo/skills/hello/SKILL.md"), "edit\n");
+  const restored = await installAll(root, { ...doc, hosts: { cursor: "off" } }, readLockfile(root));
+  assert.equal(restored.results[0].skipped, undefined);
+  assert.doesNotMatch(fs.readFileSync(path.join(root, ".deck/plugins/demo/skills/hello/SKILL.md"), "utf8"), /edit/);
+});
+
+test("a pinned npm version or archive digest already in the cache is not fetched again", async () => {
+  const cacheDir = path.join(process.env.DECK_CACHE, "npm", "deck-cached-only@1.0.0");
+  writeTree(cacheDir, {
+    "package/skills/cached/SKILL.md": skill("cached"),
+    "resolved.json": { type: "npm", package: "deck-cached-only", version: "1.0.0" },
+  });
+  const root = project();
+  // This package does not exist on the registry: only the cache can satisfy it.
+  await installAll(root, { plugins: [{ id: "cached", source: "npm:deck-cached-only", version: "1.0.0" }] }, null);
+  assert.ok(exists(root, ".claude/skills/cached/SKILL.md"));
+
+  const digest = "a".repeat(64);
+  writeTree(path.join(process.env.DECK_CACHE, "archive", digest), { "kit/skills/offline/SKILL.md": skill("offline") });
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("network used");
+  };
+  try {
+    const other = project();
+    await installAll(other, { plugins: [{ id: "kit", source: "archive:https://example.test/kit.zip", sha256: digest }] }, null);
+    assert.ok(exists(other, ".cursor/skills/offline/SKILL.md"));
+  } finally {
+    globalThis.fetch = realFetch;
   }
 });

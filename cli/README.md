@@ -90,7 +90,8 @@ Then each host is activated. `ai-plugin.json` can set a mode per host:
 
 **Native (Claude Code).** deck runs `claude plugin marketplace add <project>/.deck --scope
 local`, then `claude plugin install <id>@deck --scope local` for each plugin (and
-`plugin update` / `plugin uninstall` later). Claude reads `.deck/plugins/<id>/` in place,
+`plugin uninstall` when it goes). An installed plugin needs no further call: Claude reads
+its tree in place. Claude reads `.deck/plugins/<id>/` in place,
 so hooks, commands, agents, MCP servers, and `${CLAUDE_PLUGIN_ROOT}` work as the plugin
 author intended, and skills are namespaced (`impeccable:impeccable`). The registration is
 recorded in `.claude/settings.local.json` and in the user's plugin registry, so every
@@ -161,7 +162,11 @@ on the machine.
 }
 ```
 
-`install` keeps each pin while the request is unchanged; `update` moves it.
+`install` keeps each pin while the request is unchanged; `update` moves it. A plugin
+whose pin, normalized tree, host modes, and installed files all match what is on disk is
+skipped (`up to date`): no fetch, no copy, no `claude` call. Fetches are cached under
+`~/.cache/pinkpuma-deck/` by commit, by exact npm version, and by archive digest, so a
+pinned source is downloaded once per machine.
 `install --frozen` refuses a request the lock does not pin, a lock entry nothing
 requests, and a normalized tree whose integrity differs — use it in CI.
 

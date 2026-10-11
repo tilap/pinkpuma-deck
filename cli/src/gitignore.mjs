@@ -18,8 +18,21 @@ function isListed(text, entry) {
 }
 
 /**
+ * The lock line deck <= 0.6 wrote in its own block (the lines right after its
+ * header). A lock line the user wrote elsewhere is theirs and stays.
+ */
+function deckBlockLockLine(lines) {
+  const header = lines.findIndex((line) => line.trim() === DECK_HEADER);
+  if (header === -1) return -1;
+  for (let i = header + 1; i < lines.length && lines[i].trim() !== ""; i++) {
+    if ([LOCK_FILE, `/${LOCK_FILE}`].includes(lines[i].trim())) return i;
+  }
+  return -1;
+}
+
+/**
  * If the project already has a .gitignore, list `.deck/` and the local link
- * file in it, and drop the lock line an older deck added. Does not create
+ * file in it, and drop the lock line an older deck added to its own block. Does not create
  * .gitignore. Idempotent.
  * @returns {{ wrote: boolean, reason: string, unignoredLock?: boolean }}
  */
@@ -29,7 +42,7 @@ export function ensureDeckGitignored(projectRoot) {
 
   const original = fs.readFileSync(file, "utf8");
   const lines = original.split(/\r?\n/);
-  const lockLine = lines.findIndex((line) => [LOCK_FILE, `/${LOCK_FILE}`].includes(line.trim()));
+  const lockLine = deckBlockLockLine(lines);
   let text = original;
   let unignoredLock = false;
   if (lockLine !== -1) {
