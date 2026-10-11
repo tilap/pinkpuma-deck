@@ -1,141 +1,88 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import {
+  LOCKFILE_FORMAT,
   emptyLockfile,
-  entryId,
   normalizeLockfile,
-  parsePluginSpec,
   readLockfile,
   removeLockEntry,
   setWriteAgentsMd,
   upsertLockEntry,
   writeLockfile,
 } from "./lockfile.mjs";
+import { tmp } from "./testkit.mjs";
 
-const record = {
-  marketplace: "acme/kit",
-  name: "foo",
-  ref: "v1.0.0",
-  resolved: "abc123",
-  paths: [".claude/skills/foo"],
-  mcpKeys: {},
-};
-
-test("parsePluginSpec accepts owner/repo@plugin", () => {
-  assert.deepEqual(parsePluginSpec("acme/kit@foo"), {
-    marketplace: "acme/kit",
-    name: "foo",
-  });
+const entry = (id, extra = {}) => ({
+  id,
+  request: { id, source: "github:acme/kit", plugin: id },
+  resolved: { type: "git", url: "https://github.com/acme/kit.git", sha: "a".repeat(40) },
+  integrity: "sha256-x",
+  components: { skills: ["s"], agents: [], commands: [], rules: [], hooks: false, mcp: [] },
+  agentsSnippets: [{ skill: "s", body: "- s" }],
+  ...extra,
 });
 
-test("parsePluginSpec accepts owner/repo/plugin", () => {
-  assert.deepEqual(parsePluginSpec("acme/kit/foo"), {
-    marketplace: "acme/kit",
-    name: "foo",
-  });
+test("write and read a format 3 lock, sorted by id", () => {
+  const root = tmp();
+  let lock = upsertLockEntry(emptyLockfile(), entry("b"));
+  lock = upsertLockEntry(lock, entry("a", { nested: { type: "git", url: "u", sha: "c".repeat(40) } }));
+  writeLockfile(root, setWriteAgentsMd(lock, false));
+  const read = readLockfile(root);
+  assert.equal(read.lockfileVersion, LOCKFILE_FORMAT);
+  assert.equal(read.writeAgentsMd, false);
+  assert.deepEqual(read.plugins.map((p) => p.id), ["a", "b"]);
+  assert.equal(read.plugins[0].nested.sha, "c".repeat(40));
+  assert.deepEqual(removeLockEntry(read, "a").plugins.map((p) => p.id), ["b"]);
 });
 
-test("upsert and remove lock entries", () => {
-  let lock = emptyLockfile();
-  lock = upsertLockEntry(lock, record);
-  lock = upsertLockEntry(lock, {
-    ...record,
-    name: "bar",
-    ref: "main",
-    resolved: "def456",
-  });
-  assert.equal(lock.plugins.length, 2);
-  assert.equal(entryId(lock.plugins[0]), "acme/kit@foo");
-  lock = removeLockEntry(lock, "acme/kit@foo");
-  assert.equal(lock.plugins.length, 1);
-  assert.equal(lock.plugins[0].name, "bar");
+test("npm and archive resolutions are validated", () => {
+  const ok = (resolved) => normalizeLockfile({ lockfileVersion: 3, plugins: [entry("x", { resolved })] });
+  ok({ type: "npm", package: "@a/b", version: "1.0.0", integrity: "sha512-x" });
+  ok({ type: "archive", url: "https://x/a.zip", sha256: "f".repeat(64) });
+  assert.throws(() => ok({ type: "npm", package: "@a/b" }), /package and version/);
+  assert.throws(() => ok({ type: "git", url: "u" }), /commit sha/);
+  assert.throws(() => ok({ type: "svn" }), /unknown type/);
 });
 
-test("write and read lockfile", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
-  const lock = upsertLockEntry(emptyLockfile(), record);
-  writeLockfile(dir, lock);
-  const round = readLockfile(dir);
-  assert.equal(round.lockfileVersion, 2);
-  assert.equal(round.writeAgentsMd, true);
-  assert.equal(round.plugins.length, 1);
-  assert.equal(round.plugins[0].resolved, "abc123");
-  assert.deepEqual(round.plugins[0].paths, [".claude/skills/foo"]);
-  assert.deepEqual(round.plugins[0].agentsSnippets, []);
-});
-
-test("writeAgentsMd false is persisted on the lock", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
-  writeLockfile(dir, setWriteAgentsMd(upsertLockEntry(emptyLockfile(), record), false));
-  const round = readLockfile(dir);
-  assert.equal(round.writeAgentsMd, false);
-});
-
-test("missing writeAgentsMd defaults to true", () => {
-  const normalized = normalizeLockfile({
-    lockfileVersion: 2,
-    plugins: [
-      {
-        marketplace: "acme/kit",
-        name: "foo",
-        ref: "main",
-        resolved: "abc",
-        paths: [],
-        mcpKeys: {},
-      },
-    ],
-  });
-  assert.equal(normalized.writeAgentsMd, true);
-});
-
-test("round-trips agentsSnippets on the lock entry", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
-  const withSnippets = {
-    ...record,
-    agentsSnippets: [
-      { skill: "foo", body: "- **Foo.** If the `foo` skill is available, use it." },
-    ],
-  };
-  writeLockfile(dir, upsertLockEntry(emptyLockfile(), withSnippets));
-  const round = readLockfile(dir);
-  assert.deepEqual(round.plugins[0].agentsSnippets, withSnippets.agentsSnippets);
-});
-
-test("round-trips source on a linked lock entry", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-lock-"));
-  writeLockfile(dir, upsertLockEntry(emptyLockfile(), {
-    ...record,
-    source: "/work/kit",
-  }));
-  const round = readLockfile(dir);
-  assert.equal(round.plugins[0].source, "/work/kit");
-  writeLockfile(dir, upsertLockEntry(emptyLockfile(), record));
-  assert.equal(readLockfile(dir).plugins[0].source, undefined);
-});
-test("rejects unsupported lockfileVersion", () => {
-  assert.throws(
-    () => normalizeLockfile({ lockfileVersion: 1, plugins: [] }),
-    /lockfileVersion 1/,
+test("a format 2 lock is converted and its machine paths kept aside", () => {
+  const root = tmp();
+  fs.writeFileSync(
+    path.join(root, "ai-plugin.lock.json"),
+    JSON.stringify({
+      lockfileVersion: 2,
+      writeAgentsMd: true,
+      plugins: [
+        {
+          marketplace: "tilap/toolbelt",
+          name: "git-workflow",
+          ref: "v1",
+          resolved: "d".repeat(40),
+          paths: [".claude/skills/commit"],
+          mcpKeys: {},
+          agentsSnippets: [],
+        },
+      ],
+    }),
   );
+  const lock = readLockfile(root);
+  assert.equal(lock.lockfileVersion, 3);
+  assert.deepEqual(lock.plugins[0].request, {
+    id: "git-workflow",
+    source: "github:tilap/toolbelt",
+    plugin: "git-workflow",
+    ref: "v1",
+  });
+  assert.equal(lock.plugins[0].resolved.sha, "d".repeat(40));
+  assert.deepEqual(lock.legacyState["git-workflow"].paths, [".claude/skills/commit"]);
 });
 
-test("rejects missing lockfileVersion", () => {
+test("rejects unknown formats and inconsistent entries", () => {
+  assert.throws(() => normalizeLockfile({ lockfileVersion: 9, plugins: [] }), /supports 3/);
+  assert.throws(() => normalizeLockfile({ plugins: [] }), /missing lockfileVersion/);
   assert.throws(
-    () => normalizeLockfile({ version: 1, plugins: [] }),
-    /missing lockfileVersion/,
-  );
-});
-
-test("rejects a lock entry without a resolved commit", () => {
-  assert.throws(
-    () =>
-      normalizeLockfile({
-        lockfileVersion: 2,
-        plugins: [{ marketplace: "acme/kit", name: "foo", ref: "main", paths: [], mcpKeys: {} }],
-      }),
-    /resolved/,
+    () => normalizeLockfile({ lockfileVersion: 3, plugins: [{ ...entry("a"), id: "b" }] }),
+    /id and request.id differ/,
   );
 });

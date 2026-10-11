@@ -1,48 +1,40 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { ensureLockGitignored } from "./gitignore.mjs";
-import { emptyLockfile, writeLockfile } from "./lockfile.mjs";
+import { ensureDeckGitignored } from "./gitignore.mjs";
+import { tmp } from "./testkit.mjs";
 
-test("ensureLockGitignored does nothing without a .gitignore", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  const result = ensureLockGitignored(dir);
-  assert.equal(result.wrote, false);
-  assert.equal(result.reason, "missing");
-  assert.ok(!fs.existsSync(path.join(dir, ".gitignore")));
+test("does nothing without a .gitignore", () => {
+  const root = tmp();
+  assert.deepEqual(ensureDeckGitignored(root), { wrote: false, reason: "missing" });
+  assert.ok(!fs.existsSync(path.join(root, ".gitignore")));
 });
 
-test("ensureLockGitignored appends the lock path once", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  fs.writeFileSync(path.join(dir, ".gitignore"), "node_modules/\n");
-  assert.equal(ensureLockGitignored(dir).wrote, true);
-  const first = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-  assert.match(first, /node_modules\//);
-  assert.match(first, /^ai-plugin\.lock\.json$/m);
-  assert.match(first, /^ai-plugin\.local\.json$/m);
-  assert.equal(ensureLockGitignored(dir).wrote, false);
-  assert.equal(ensureLockGitignored(dir).reason, "already");
-  assert.equal(fs.readFileSync(path.join(dir, ".gitignore"), "utf8"), first);
+test("lists .deck/ and the local link file once", () => {
+  const root = tmp();
+  fs.writeFileSync(path.join(root, ".gitignore"), "node_modules\n");
+  assert.equal(ensureDeckGitignored(root).wrote, true);
+  assert.equal(ensureDeckGitignored(root).wrote, false);
+  const text = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+  assert.equal(text, "node_modules\n\n# @pinkpuma/deck — local install\n.deck/\nai-plugin.local.json\n");
 });
 
-test("writeLockfile adds the lock path to an existing .gitignore", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  fs.writeFileSync(path.join(dir, ".gitignore"), ".DS_Store\n");
-  writeLockfile(dir, emptyLockfile());
-  const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-  assert.match(text, /^ai-plugin\.lock\.json$/m);
-  assert.match(text, /^ai-plugin\.local\.json$/m);
-  assert.ok(fs.existsSync(path.join(dir, "ai-plugin.lock.json")));
+test("stops ignoring the lock an older deck ignored", () => {
+  const root = tmp();
+  fs.writeFileSync(
+    path.join(root, ".gitignore"),
+    "dist\n\n# @pinkpuma/deck — local install\nai-plugin.lock.json\nai-plugin.local.json\n",
+  );
+  const result = ensureDeckGitignored(root);
+  assert.equal(result.unignoredLock, true);
+  const text = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+  assert.ok(!text.includes("ai-plugin.lock.json"));
+  assert.match(text, /# @pinkpuma\/deck — local install\n\.deck\/\nai-plugin\.local\.json\n/);
 });
 
-test("ensureLockGitignored appends only the local file when the lock is already ignored", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  fs.writeFileSync(path.join(dir, ".gitignore"), "ai-plugin.lock.json\n");
-  assert.equal(ensureLockGitignored(dir).wrote, true);
-  const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-  assert.equal(text.match(/^ai-plugin\.lock\.json$/gm).length, 1);
-  assert.match(text, /^ai-plugin\.local\.json$/m);
-  assert.equal(ensureLockGitignored(dir).reason, "already");
+test("an existing /.deck entry counts", () => {
+  const root = tmp();
+  fs.writeFileSync(path.join(root, ".gitignore"), "/.deck\nai-plugin.local.json\n");
+  assert.equal(ensureDeckGitignored(root).wrote, false);
 });
