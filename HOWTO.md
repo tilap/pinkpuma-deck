@@ -120,7 +120,7 @@ move. `ai-plugin.json` lists what to install and
 lists them in an existing `.gitignore`. See [cli/README.md](cli/README.md).
 
 **Agent profiles** — switch between agent roles (builder, tester, …) in a project with
-`deck profile`. Each profile is a folder under `.ai/` with a `prompt.md` and its own
+`deck profile`. Each profile is a folder under `.ai-profiles/` with a `prompt.md` and its own
 request and lock, installed on top of the base:
 
 ```bash

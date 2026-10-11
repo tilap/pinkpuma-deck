@@ -1598,16 +1598,16 @@ function buildSteps() {
         {
           id: "locked-not-installed",
           expected:
-            ".ai/builder a prompt.md, une requête et un lock qui pince nextjs-app-structure. Le profil n'est pas actif : le skill n'est pas installé, et la requête de base ne change pas.",
+            ".ai-profiles/builder a prompt.md, une requête et un lock qui pince nextjs-app-structure. Le profil n'est pas actif : le skill n'est pas installé, et la requête de base ne change pas.",
           test(api) {
             const add = commandNamed(api, "add");
-            const request = readJson(api.target, ".ai/builder/ai-plugin.json");
-            const lock = readJson(api.target, ".ai/builder/ai-plugin.lock.json");
+            const request = readJson(api.target, ".ai-profiles/builder/ai-plugin.json");
+            const lock = readJson(api.target, ".ai-profiles/builder/ai-plugin.lock.json");
             const installed = has(api.target, ".claude/skills/nextjs-app-structure");
             const base = pluginNames(readRequest(api.target));
             const ok =
               add?.exitCode === 0 &&
-              has(api.target, ".ai/builder/prompt.md") &&
+              has(api.target, ".ai-profiles/builder/prompt.md") &&
               isToolbeltRequest(findPlugin(request, "nextjs-app-structure"), "nextjs-app-structure") &&
               Boolean(lockedSha(findPlugin(lock, "nextjs-app-structure"))) &&
               !installed &&
@@ -1627,19 +1627,19 @@ function buildSteps() {
         {
           id: "base-plus-profile",
           expected:
-            "Le skill du profil est installé, les plugins de base sont « up to date », .ai/current pointe vers builder, CLAUDE.md importe @.ai/current/prompt.md et la règle Cursor deck-profile.mdc existe. Le lock de base ne contient pas le plugin du profil.",
+            "Le skill du profil est installé, les plugins de base sont « up to date », .ai-profiles/current pointe vers builder, CLAUDE.md importe @.ai-profiles/current/prompt.md et la règle Cursor deck-profile.mdc existe. Le lock de base ne contient pas le plugin du profil.",
           test(api) {
             const command = lastCommand(api);
             const installed = presence(api.target, skillRels("nextjs-app-structure"));
             const claude = has(api.target, "CLAUDE.md") ? readText(api.target, "CLAUDE.md") : "";
-            const current = fs.readlinkSync(path.join(api.target, ".ai/current"));
+            const current = fs.readlinkSync(path.join(api.target, ".ai-profiles/current"));
             const baseLock = pluginNames(readLock(api.target));
             const ok =
               command?.exitCode === 0 &&
               installed.ok &&
               /git-workflow .*\(up to date\)/.test(command.stdout) &&
               current === "builder" &&
-              claude.includes("@.ai/current/prompt.md") &&
+              claude.includes("@.ai-profiles/current/prompt.md") &&
               has(api.target, ".cursor/rules/deck-profile.mdc") &&
               !baseLock.includes("nextjs-app-structure");
             return { ok, actual: `exit=${command?.exitCode} ${installed.actual} current=${current} lockBase=${baseLock.join(",")}` };
@@ -1656,7 +1656,7 @@ function buildSteps() {
       checks: [
         {
           id: "back-to-base",
-          expected: "Le skill du profil est retiré, ceux de base restent, .ai/current, la règle Cursor et la ligne d'import disparaissent.",
+          expected: "Le skill du profil est retiré, ceux de base restent, .ai-profiles/current, la règle Cursor et la ligne d'import disparaissent.",
           test(api) {
             const command = lastCommand(api);
             const gone = absence(api.target, skillRels("nextjs-app-structure"));
@@ -1666,9 +1666,9 @@ function buildSteps() {
               command?.exitCode === 0 &&
               gone.ok &&
               kept.ok &&
-              !has(api.target, ".ai/current") &&
+              !has(api.target, ".ai-profiles/current") &&
               !has(api.target, ".cursor/rules/deck-profile.mdc") &&
-              !claude.includes("@.ai/current/prompt.md");
+              !claude.includes("@.ai-profiles/current/prompt.md");
             return { ok, actual: `exit=${command?.exitCode} ${gone.actual}; ${kept.actual}` };
           },
         },
@@ -1701,13 +1701,13 @@ function buildSteps() {
                 fs.existsSync(path.join(p.path, ".cursor-plugin/plugin.json")),
             );
             const untouched =
-              !has(api.target, ".ai/current") &&
+              !has(api.target, ".ai-profiles/current") &&
               absence(api.target, skillRels("nextjs-app-structure")).ok &&
               readText(api.target, REQUEST_FILE) === api.requestBytes;
             const ok =
               command?.exitCode === 0 &&
               result?.profile === "builder" &&
-              result?.prompt === path.join(api.target, ".ai/builder/prompt.md") &&
+              result?.prompt === path.join(api.target, ".ai-profiles/builder/prompt.md") &&
               ids.includes("git-workflow") &&
               ids.at(-1) === "nextjs-app-structure" &&
               built &&

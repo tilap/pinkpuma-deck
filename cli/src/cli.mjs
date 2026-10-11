@@ -57,8 +57,8 @@ Advanced options:
 
 Files:
   ai-plugin.json, ai-plugin.lock.json          the base: what every profile gets (commit both)
-  .ai/<name>/prompt.md, ai-plugin.json, lock   a profile, added on top when active (commit)
-  .ai/current, ai-plugin.local.json, .deck/    local only
+  .ai-profiles/<name>/prompt.md, ai-plugin.json, lock   a profile, added on top when active (commit)
+  .ai-profiles/current, ai-plugin.local.json, .deck/    local only
 
 Settings in ai-plugin.json:
   "hosts": { "claude": "native" | "copy" | "off", "cursor": "copy" | "off" }

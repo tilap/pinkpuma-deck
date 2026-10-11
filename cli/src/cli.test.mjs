@@ -44,7 +44,7 @@ test("profiles: add to the base and to profiles, switch, and turn off", () => {
   assert.equal(lockedOnly.code, 0, lockedOnly.err);
   assert.match(lockedOnly.out, /not active/);
   assert.ok(!has(root, ".claude/skills/pdf"), "an inactive profile is locked, not installed");
-  assert.ok(readJson(path.join(root, ".ai/builder/ai-plugin.lock.json")).plugins[0].resolved.sha);
+  assert.ok(readJson(path.join(root, ".ai-profiles/builder/ai-plugin.lock.json")).plugins[0].resolved.sha);
   assert.equal(deck(root, "add", src("test-kit"), "--profile", "tester").code, 0);
 
   const use = deck(root, "profile", "use", "builder");
@@ -66,7 +66,7 @@ test("profiles: add to the base and to profiles, switch, and turn off", () => {
 
   assert.equal(deck(root, "profile", "off").code, 0);
   assert.ok(!has(root, ".cursor/skills/e2e") && has(root, ".cursor/skills/commit"));
-  assert.ok(!has(root, ".ai/current"));
+  assert.ok(!has(root, ".ai-profiles/current"));
 });
 
 test("options a command does not take are refused", () => {
@@ -117,7 +117,7 @@ test("materialize builds the base and one profile into a folder, and nothing els
   assert.equal(r.code, 0, r.err);
   const result = JSON.parse(r.out);
   assert.equal(result.profile, "builder");
-  assert.equal(result.prompt, path.join(root, ".ai/builder/prompt.md"));
+  assert.equal(result.prompt, path.join(root, ".ai-profiles/builder/prompt.md"));
   assert.deepEqual(result.plugins.map((p) => p.id), ["base-kit", "build-kit"]);
   for (const p of result.plugins) {
     assert.equal(p.path, path.join(out, p.id));
@@ -127,7 +127,7 @@ test("materialize builds the base and one profile into a folder, and nothing els
   }
   assert.deepEqual(result.plugins[1].components.skills, ["pdf"]);
   assert.equal(snapshot(root), before, "the project is not touched");
-  assert.ok(!has(root, ".ai/current"));
+  assert.ok(!has(root, ".ai-profiles/current"));
 
   const again = deck(root, "materialize", "--profile", "builder", "--out", out);
   assert.match(again.out, /base-kit {2}\(up to date\)[\s\S]*build-kit {2}\(up to date\)/);

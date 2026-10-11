@@ -6,11 +6,11 @@ import { emptyPlugins, mergePluginRequests, readLocalPlugins, readPlugins } from
 
 /**
  * A project's plugin set: the base (root ai-plugin.json and lock, committed),
- * plus the active profile (.ai/<name>/ai-plugin.json and lock), plus local links.
+ * plus the active profile (.ai-profiles/<name>/ai-plugin.json and lock), plus local links.
  * Every command works on this merged view; locks are split back on save.
  */
 
-export const PROFILES_DIR = ".ai";
+export const PROFILES_DIR = ".ai-profiles";
 export const CURRENT_LINK = `${PROFILES_DIR}/current`;
 
 export function profileDir(projectRoot, name) {
@@ -21,7 +21,7 @@ export function isValidProfileName(name) {
   return typeof name === "string" && /^[A-Za-z0-9._-]+$/.test(name) && name !== "current" && !name.startsWith(".");
 }
 
-/** The active profile, from the .ai/current link, or null. */
+/** The active profile, from the .ai-profiles/current link, or null. */
 export function activeProfile(projectRoot) {
   const link = path.join(projectRoot, CURRENT_LINK);
   try {
@@ -33,7 +33,7 @@ export function activeProfile(projectRoot) {
   return fs.existsSync(path.join(profileDir(projectRoot, name), PLUGINS_FILE)) ? name : null;
 }
 
-/** Profile names: folders of .ai/ that hold an ai-plugin.json. */
+/** Profile names: folders of .ai-profiles/ that hold an ai-plugin.json. */
 export function listProfiles(projectRoot) {
   const dir = path.join(projectRoot, PROFILES_DIR);
   if (!fs.existsSync(dir)) return [];

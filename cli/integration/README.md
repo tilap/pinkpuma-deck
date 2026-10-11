@@ -80,7 +80,7 @@ Each action runs in order. The checks are in `run.mjs`.
 37. **`add-unknown-plugin`** — rejected with the list of available plugins; nothing written.
 38. **`status-healthy`** — `deck status` exits 0.
 39. **`frozen-reproduces`** — the request and lock copied to an empty folder; `deck install --frozen` rewrites a byte-identical lock.
-40. **`profile-new-and-lock`** — `deck profile new builder`, then `deck add … --profile builder`: locked in `.ai/builder/`, not installed.
+40. **`profile-new-and-lock`** — `deck profile new builder`, then `deck add … --profile builder`: locked in `.ai-profiles/builder/`, not installed.
 41. **`profile-use`** — `deck profile use builder`: the profile's skill arrives, the base is up to date, `CLAUDE.md` imports the prompt, the Cursor rule exists.
 42. **`profile-off`** — back to the base; link, rule, and import removed.
 43. **`materialize-profile`** — `deck materialize --profile builder --out … --json` builds the base and the builder's plugin into the folder and leaves the project untouched.

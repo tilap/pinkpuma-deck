@@ -58,13 +58,13 @@ on top of the base every profile gets:
 
 ```
 ai-plugin.json, ai-plugin.lock.json         the base (committed)
-.ai/builder/prompt.md                       the builder's prompt (committed)
-.ai/builder/ai-plugin.json, …lock.json      the builder's plugins (committed)
-.ai/current → builder                       the active profile (local)
+.ai-profiles/builder/prompt.md                       the builder's prompt (committed)
+.ai-profiles/builder/ai-plugin.json, …lock.json      the builder's plugins (committed)
+.ai-profiles/current → builder                       the active profile (local)
 ```
 
 ```bash
-deck profile new builder                         # .ai/builder/ with prompt.md and an empty request
+deck profile new builder                         # .ai-profiles/builder/ with prompt.md and an empty request
 deck add anthropics/skills --skill pdf --profile builder
 deck profile use builder                         # base + builder installed; then a new Claude session / reload Cursor
 deck profile use tester                          # builder's plugins leave, tester's arrive, the base is untouched
@@ -73,11 +73,11 @@ deck profile list                                # * marks the active one
 ```
 
 `deck add --profile x` on a profile that is not active resolves and locks the plugin in
-`.ai/x/` without installing it. A plugin id belongs to the base or to a profile, not both.
+`.ai-profiles/x/` without installing it. A plugin id belongs to the base or to a profile, not both.
 
-The prompt follows `.ai/current`: `profile use` adds `@.ai/current/prompt.md` to
+The prompt follows `.ai-profiles/current`: `profile use` adds `@.ai-profiles/current/prompt.md` to
 `CLAUDE.md` once, and writes `.cursor/rules/deck-profile.mdc` (`alwaysApply`) from the
-profile's `prompt.md`. `profile off` removes both. `.ai/current` and the Cursor rule are
+profile's `prompt.md`. `profile off` removes both. `.ai-profiles/current` and the Cursor rule are
 listed in an existing `.gitignore`.
 
 ## Materialize
@@ -93,7 +93,7 @@ deck materialize --profile builder --out /tmp/agents/builder --json
 ```json
 {
   "profile": "builder",
-  "prompt": "/path/to/project/.ai/builder/prompt.md",
+  "prompt": "/path/to/project/.ai-profiles/builder/prompt.md",
   "out": "/tmp/agents/builder",
   "plugins": [
     { "id": "git-workflow", "path": "/tmp/agents/builder/git-workflow", "integrity": "sha256-…", "components": { "skills": ["commit", "…"], "…": [] } }
@@ -103,7 +103,7 @@ deck materialize --profile builder --out /tmp/agents/builder --json
 
 - Always frozen: a request a lock does not pin, or content that differs from its
   integrity, is refused.
-- `--profile` names the profile; `.ai/current` is not read, so several profiles can be
+- `--profile` names the profile; `.ai-profiles/current` is not read, so several profiles can be
   built side by side. Local links are ignored: the output is what is committed.
 - Writes only in `--out`: nothing in `.claude/`, `.cursor/`, the locks, `.deck/`,
   `.gitignore`, or `AGENTS.md`. A plugin already in `--out` with the locked integrity is
