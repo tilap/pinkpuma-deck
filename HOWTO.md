@@ -111,9 +111,11 @@ npx @pinkpuma/deck install --frozen --project /path/to/app
 npx @pinkpuma/deck link /path/to/marketplace@plugin-name --project /path/to/app
 ```
 
-Each plugin is normalized under `.deck/plugins/<id>/`, then copied into both `.claude/`
-and `.cursor/` (skills, agents, commands, rules, support files) with MCP servers merged
-into `.mcp.json` and `.cursor/mcp.json`. `ai-plugin.json` lists what to install and
+Each plugin is normalized under `.deck/plugins/<id>/`. Claude Code installs it natively
+from `.deck/` as a local marketplace (hooks and commands included); Cursor gets copies in
+`.cursor/` (skills, agents, commands, rules, support files, MCP in `.cursor/mcp.json`).
+`deck doctor` checks the whole chain and `deck outdated` shows what `deck update` would
+move. `ai-plugin.json` lists what to install and
 `ai-plugin.lock.json` pins what it resolved to: commit both. `.deck/` and
 `ai-plugin.local.json` (links to checkouts, which win over the same id) stay local; deck
 lists them in an existing `.gitignore`. See [cli/README.md](cli/README.md).

@@ -27,6 +27,8 @@ npx @pinkpuma/deck --help
 | `install [--frozen]` (alias `sync`)                                                     | Make the project match `ai-plugin.json`, pinned by the lock                    |
 | `update [<id>…]`                                                                        | Resolve refs again (all, or the ids given) and rewrite the lock                |
 | `list`                                                                                  | Requests, their lock pin, and their components                                 |
+| `outdated`                                                                              | Lock pins vs what each ref or range points to now, and newer release tags (exit 1 when behind) |
+| `doctor`                                                                                | Check request ↔ lock ↔ `.deck/` ↔ host activation ↔ `.gitignore` (exit 1 on errors) |
 | `link <checkout>[@<plugin>] [--id] [--skill]… [--path]`                                 | Install a working tree, uncommitted files included. Not locked                 |
 | `unlink <id> [--keep-files]`                                                            | Drop the link; reinstall the committed request if there is one                 |
 | `scaffold <name> --owner <name> [--dir <parent>]`                                       | Create a new marketplace repo under `<dir>/<name>`                             |
@@ -77,13 +79,28 @@ marketplace.
 Then each host is activated. `ai-plugin.json` can set a mode per host:
 
 ```json
-{ "plugins": [], "hosts": { "claude": "copy", "cursor": "copy" } }
+{ "plugins": [], "hosts": { "claude": "native", "cursor": "copy" } }
 ```
 
-| Mode   | Effect                                                     |
-| ------ | ---------------------------------------------------------- |
-| `copy` | default — vendor components into the host's project paths |
-| `off`  | install nothing for that host                              |
+| Mode     | Claude Code                                                                 | Cursor                                   |
+| -------- | --------------------------------------------------------------------------- | ---------------------------------------- |
+| `native` | default — `.deck/` is a local marketplace; each plugin is installed from it | not supported, falls back to `copy`      |
+| `copy`   | vendor components into `.claude/`, `.mcp.json`                              | default — vendor into `.cursor/`         |
+| `off`    | nothing for that host                                                       | nothing for that host                    |
+
+**Native (Claude Code).** deck runs `claude plugin marketplace add <project>/.deck --scope
+local`, then `claude plugin install <id>@deck --scope local` for each plugin (and
+`plugin update` / `plugin uninstall` later). Claude reads `.deck/plugins/<id>/` in place,
+so hooks, commands, agents, MCP servers, and `${CLAUDE_PLUGIN_ROOT}` work as the plugin
+author intended, and skills are namespaced (`impeccable:impeccable`). The registration is
+recorded in `.claude/settings.local.json` and in the user's plugin registry, so every
+machine runs `deck install` once. Without the `claude` CLI on `PATH` (or
+`DECK_CLAUDE_BIN`), deck falls back to copy mode and says so. The `deck` marketplace is
+removed when no plugin is installed from it.
+
+**Cursor.** `cursor-agent` ignores plugin paths returned by a `workspaceOpen` hook (checked
+with cursor-agent 2026.10.01), so Cursor uses copy mode. Agent runners can still pass
+`.deck/plugins/<id>` to `cursor-agent --plugin-dir`.
 
 Copy mode writes:
 
@@ -98,8 +115,8 @@ Copy mode writes:
 
 Relative links from a skill to a support file are rewritten to the per-plugin directory.
 `${CLAUDE_PLUGIN_ROOT}`, `${CURSOR_PLUGIN_ROOT}`, and `${PLUGIN_ROOT}` are replaced with
-that directory in skills and MCP servers. Hooks are not active in copy mode; deck says
-so. Copy mode refuses to write a path another plugin owns, or one deck did not write
+that directory in skills and MCP servers. Hooks are not active in copy mode; deck and
+`deck doctor` say so. Copy mode refuses to write a path another plugin owns, or one deck did not write
 (`--force` replaces the latter).
 
 Optional `skills/<name>/DEFAULT_USAGE.md` is not copied. Its body is stored in the lock
