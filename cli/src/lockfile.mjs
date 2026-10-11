@@ -7,7 +7,7 @@ import { normalizeRequest } from "./sources/spec.mjs";
  *
  * Each entry pins what a request resolved to (commit SHA, npm version, archive
  * digest), the integrity of the normalized plugin tree, and its components.
- * Nothing machine-specific: what deck wrote on disk lives in .deck/state.json.
+ * Nothing machine-specific: what deck wrote on disk lives in .ai/installed/state.json.
  *
  * @typedef {{ skill: string, body: string }} AgentsSnippet
  * @typedef {import("./sources/fetch.mjs").Resolved} Resolved

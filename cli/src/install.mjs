@@ -15,7 +15,7 @@ import { descriptorFor, normalizeRequest, sameRequest } from "./sources/spec.mjs
 import { readState, writeState } from "./state.mjs";
 
 /**
- * One request → fetched, located, normalized under .deck/plugins/<id>, and
+ * One request → fetched, located, normalized under .ai/installed/plugins/<id>, and
  * activated for each host. The lock pins what was resolved; the state records
  * what was written on this machine.
  *
@@ -23,7 +23,7 @@ import { readState, writeState } from "./state.mjs";
  * @typedef {import("./lockfile.mjs").LockEntry} LockEntry
  */
 
-/** Claude loads `.deck/` natively; cursor-agent ignores plugin paths from hooks, so Cursor copies. */
+/** Claude loads `.ai/installed/` natively; cursor-agent ignores plugin paths from hooks, so Cursor copies. */
 const DEFAULT_HOSTS = { claude: "native", cursor: "copy" };
 
 export function hostModes(doc) {

@@ -38,7 +38,7 @@ test("a fresh install is healthy, with warnings for inactive hooks", async () =>
 
 test("reports a hand-edited plugin tree and missing installed files", async () => {
   const root = await installed();
-  fs.appendFileSync(path.join(root, ".deck/plugins/demo/skills/hello/SKILL.md"), "edit\n");
+  fs.appendFileSync(path.join(root, ".ai/installed/plugins/demo/skills/hello/SKILL.md"), "edit\n");
   fs.rmSync(path.join(root, ".cursor/skills/hello"), { recursive: true });
   const errors = levels(doctor(root), "error");
   assert.ok(errors.some((m) => m.includes("differs from the lock")));

@@ -1,10 +1,10 @@
 import fs from "node:fs";
 import path from "node:path";
-import { DECK_DIR, LOCAL_PLUGINS_FILE, LOCK_FILE } from "./paths.mjs";
+import { INSTALLED_DIR, LOCAL_PLUGINS_FILE, LOCK_FILE } from "./paths.mjs";
 
 const GITIGNORE = ".gitignore";
 /** Machine-only files. The lock is committed, like package-lock.json. */
-const DECK_LOCAL_ENTRIES = [`${DECK_DIR}/`, LOCAL_PLUGINS_FILE];
+const DECK_LOCAL_ENTRIES = [`${INSTALLED_DIR}/`, LOCAL_PLUGINS_FILE];
 const DECK_HEADER = "# @pinkpuma/deck — local install";
 
 function isListed(text, entry) {
@@ -18,7 +18,7 @@ function isListed(text, entry) {
 }
 
 /**
- * If the project already has a .gitignore, list `.deck/` and the local link
+ * If the project already has a .gitignore, list `.ai/installed/` and the local link
  * file in it. Does not create .gitignore. Idempotent.
  * @returns {{ wrote: boolean, reason: string }}
  */
@@ -54,7 +54,7 @@ export function gitignoreStatus(projectRoot) {
   if (!fs.existsSync(file)) return null;
   const text = fs.readFileSync(file, "utf8");
   return {
-    deckIgnored: isListed(text, `${DECK_DIR}/`),
+    installedIgnored: isListed(text, `${INSTALLED_DIR}/`),
     localIgnored: isListed(text, LOCAL_PLUGINS_FILE),
     lockIgnored: isListed(text, LOCK_FILE),
   };

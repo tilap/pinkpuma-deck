@@ -71,13 +71,13 @@ test("install fetches, normalizes, activates, and pins the commit", async () => 
   assert.equal(lock.plugins[0].resolved.sha, repo.sha);
   assert.match(lock.plugins[0].integrity, /^sha256-/);
   assert.deepEqual(lock.plugins[0].components.skills, ["hello"]);
-  assert.ok(exists(root, ".deck/plugins/demo/.cursor-plugin/plugin.json"));
+  assert.ok(exists(root, ".ai/installed/plugins/demo/.cursor-plugin/plugin.json"));
   assert.ok(exists(root, ".claude/skills/hello/SKILL.md"));
   assert.ok(exists(root, ".cursor/agents/reviewer.md"));
   assert.deepEqual(readState(root).plugins.demo.paths.includes(".claude/skills/hello"), true);
   assert.match(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"), /Use the `hello` skill/);
-  assert.match(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), /\.deck\//);
-  assert.equal(readJson(path.join(root, ".deck/.claude-plugin/marketplace.json")).plugins[0].source, "./plugins/demo");
+  assert.match(fs.readFileSync(path.join(root, ".gitignore"), "utf8"), /\.ai\/installed\//);
+  assert.equal(readJson(path.join(root, ".ai/installed/.claude-plugin/marketplace.json")).plugins[0].source, "./plugins/demo");
 });
 
 test("the lock pin holds until update, and --frozen reproduces elsewhere", async () => {
@@ -119,7 +119,7 @@ test("a request that is no longer wanted is removed everywhere", async () => {
   const { removed } = await installAll(root, { plugins: [] }, readLockfile(root));
   assert.deepEqual(removed, ["demo"]);
   assert.ok(!exists(root, ".claude/skills/hello"));
-  assert.ok(!exists(root, ".deck/plugins/demo"));
+  assert.ok(!exists(root, ".ai/installed/plugins/demo"));
   assert.deepEqual(readLockfile(root).plugins, []);
   assert.doesNotMatch(fs.readFileSync(path.join(root, "AGENTS.md"), "utf8"), /hello/);
 });
@@ -140,7 +140,7 @@ test("a failed first install leaves no normalized tree behind", async () => {
   const root = project();
   const request = { id: "nope", source: `git:${repo.url}`, plugin: "nope" };
   await assert.rejects(installOne(root, { plugins: [request] }, request, null), /no plugin "nope"/);
-  assert.ok(!exists(root, ".deck/plugins/nope"));
+  assert.ok(!exists(root, ".ai/installed/plugins/nope"));
   assert.ok(!exists(root, "ai-plugin.lock.json"));
 });
 
@@ -202,7 +202,7 @@ test("hosts can be turned off; without the claude CLI, native falls back to copy
   assert.ok(results[0].warnings.some((w) => w.includes("CLI not found")));
 });
 
-test("Claude native mode registers .deck/ and installs each plugin from it", async () => {
+test("Claude native mode registers .ai/installed/ and installs each plugin from it", async () => {
   const fake = fakeClaude();
   process.env.DECK_CLAUDE_BIN = fake.bin;
   try {
@@ -214,7 +214,7 @@ test("Claude native mode registers .deck/ and installs each plugin from it", asy
     assert.ok(!exists(root, ".claude/skills/hello"), "nothing copied for Claude");
     assert.ok(exists(root, ".cursor/skills/hello"), "Cursor still copies");
     assert.deepEqual(readState(root).plugins.demo.native, ["claude"]);
-    const deckDir = path.join(root, ".deck");
+    const deckDir = path.join(root, ".ai/installed");
     assert.deepEqual(fake.calls(), [
       `plugin marketplace add ${deckDir} --scope local`,
       "plugin install demo@deck --scope local",
@@ -256,10 +256,10 @@ test("an unchanged plugin is skipped; a missing file, a mode change, or an edit 
   assert.equal(offCursor.results[0].skipped, undefined);
   assert.ok(!exists(root, ".cursor/skills/hello"));
 
-  fs.appendFileSync(path.join(root, ".deck/plugins/demo/skills/hello/SKILL.md"), "edit\n");
+  fs.appendFileSync(path.join(root, ".ai/installed/plugins/demo/skills/hello/SKILL.md"), "edit\n");
   const restored = await installAll(root, { ...doc, hosts: { cursor: "off" } }, readLockfile(root));
   assert.equal(restored.results[0].skipped, undefined);
-  assert.doesNotMatch(fs.readFileSync(path.join(root, ".deck/plugins/demo/skills/hello/SKILL.md"), "utf8"), /edit/);
+  assert.doesNotMatch(fs.readFileSync(path.join(root, ".ai/installed/plugins/demo/skills/hello/SKILL.md"), "utf8"), /edit/);
 });
 
 test("a pinned npm version or archive digest already in the cache is not fetched again", async () => {

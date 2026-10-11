@@ -2,7 +2,7 @@
 
 End-to-end run of `@pinkpuma/deck` against an empty project and a local checkout of `tilap/pinkpuma-toolbelt`.
 
-`ai-plugin.json` is the request (`{ id, source, plugin, ref }`). `ai-plugin.local.json` is a gitignored link to a working tree. `ai-plugin.lock.json` is the committed lock (format 3): resolved commit, integrity, components, snippets. `.deck/` holds the normalized plugins and the local state.
+`ai-plugin.json` is the request (`{ id, source, plugin, ref }`). `ai-plugin.local.json` is a gitignored link to a working tree. `ai-plugin.lock.json` is the committed lock (format 3): resolved commit, integrity, components, snippets. `.ai/installed/` holds the normalized plugins and the local state.
 
 A skill that links to another file in its plugin (conventions, script, template) must resolve that file inside a directory owned by that plugin. A skill or MCP server that is already in the project, and that the plugin does not ship, stays. A file the plugin ships over one deck did not write is refused unless `--force`; with it, the file is replaced, then deleted on `remove`. `DEFAULT_USAGE.md` is not copied into the skill directory: its text feeds a marked block in `AGENTS.md` when that file already exists.
 
@@ -45,7 +45,7 @@ Each action runs in order. The checks are in `run.mjs`.
 2. **`unknown-command`** — `deck nope` is rejected.
 3. **`add-invalid-spec`** — `deck add not-a-spec` is rejected (`Cannot read`), nothing written.
 4. **`seed-local-files`** — skill `my-local`, `code-reviewer` agents marked `USER OWNED`, MCP servers `user-notes` and `user-cursor`, `.gitignore` (`node_modules/`), `AGENTS.md`.
-5. **`add-git-workflow`** — `deck add` creates `ai-plugin.json`. Skills copied, `CONVENTIONS.md` links resolve, `DEFAULT_USAGE.md` is absent from the skill directory, Skills block in `AGENTS.md`. The request has `id`, `source: github:tilap/pinkpuma-toolbelt`, `plugin`, no `ref`. Lock format 3 with a commit, an integrity, the four skills, and the four snippets. `.gitignore` gains `.deck/` and the local file, not the lock.
+5. **`add-git-workflow`** — `deck add` creates `ai-plugin.json`. Skills copied, `CONVENTIONS.md` links resolve, `DEFAULT_USAGE.md` is absent from the skill directory, Skills block in `AGENTS.md`. The request has `id`, `source: github:tilap/pinkpuma-toolbelt`, `plugin`, no `ref`. Lock format 3 with a commit, an integrity, the four skills, and the four snippets. `.gitignore` gains `.ai/installed/` and the local file, not the lock.
 6. **`add-dev-agents-refused`** — the user's `code-reviewer` agents block the install (`was not written by deck`). Nothing is written.
 7. **`add-dev-agents`** — with `--force`, the plugin's `code-reviewer` replaces the user's.
 8. **`list-installed`** — `deck status` lists `git-workflow` and `dev-agents`, both locked, not `handoff`, no link.
@@ -80,7 +80,7 @@ Each action runs in order. The checks are in `run.mjs`.
 37. **`add-unknown-plugin`** — rejected with the list of available plugins; nothing written.
 38. **`status-healthy`** — `deck status` exits 0.
 39. **`frozen-reproduces`** — the request and lock copied to an empty folder; `deck install --frozen` rewrites a byte-identical lock.
-40. **`profile-new-and-lock`** — `deck profile new builder`, then `deck add … --profile builder`: locked in `.ai-profiles/builder/`, not installed.
+40. **`profile-new-and-lock`** — `deck profile new builder`, then `deck add … --profile builder`: locked in `.ai/profiles/builder/`, not installed.
 41. **`profile-use`** — `deck profile use builder`: the profile's skill arrives, the base is up to date, `CLAUDE.md` imports the prompt, the Cursor rule exists.
 42. **`profile-off`** — back to the base; link, rule, and import removed.
 43. **`materialize-profile`** — `deck materialize --profile builder --out … --json` builds the base and the builder's plugin into the folder and leaves the project untouched.

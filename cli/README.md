@@ -3,13 +3,14 @@
 Install AI plugins and skills into a project, for Claude Code and Cursor, and reinstall
 exactly the same thing later — on another machine, in CI, or for an agent runner.
 
-| npm                 | deck                                                         | Commit |
-| ------------------- | ------------------------------------------------------------ | ------ |
-| `package.json`      | `ai-plugin.json` — what you ask for                          | yes    |
-| `package-lock.json` | `ai-plugin.lock.json` — commits, versions, digests, contents | yes    |
-| `node_modules/`     | `.deck/plugins/<id>/` — each plugin, normalized              | no     |
-| —                   | `.deck/state.json` — what deck wrote on this machine         | no     |
-| —                   | `ai-plugin.local.json` — links to working trees              | no     |
+| npm                 | deck                                                               | Commit |
+| ------------------- | ------------------------------------------------------------------ | ------ |
+| `package.json`      | `ai-plugin.json` — what you ask for                                | yes    |
+| `package-lock.json` | `ai-plugin.lock.json` — commits, versions, digests, contents       | yes    |
+| `node_modules/`     | `.ai/installed/plugins/<id>/` — each plugin, normalized            | no     |
+| —                   | `.ai/installed/state.json` — what deck wrote on this machine       | no     |
+| —                   | `.ai/profiles/<name>/` — agent profiles (see [Profiles](#profiles)) | yes    |
+| —                   | `ai-plugin.local.json` — links to working trees                    | no     |
 
 ```bash
 npm i -g @pinkpuma/deck
@@ -38,7 +39,7 @@ deck materialize --out <dir> [--profile <name>] [--json]
 | `remove`     | Drop the request, its normalized tree, its installed files, and its lock entry                            |
 | `install`    | Make the project match the base and the active profile, pinned by the locks. `--frozen` for CI            |
 | `update`     | Resolve refs again (all, or the ids given) and rewrite the lock                                           |
-| `status`     | Active profile, every request (`[base]`, `[profile x]`, `[link]`) and its lock pin, and every mismatch between request, lock, `.deck/`, hosts, and `.gitignore`. Never touches the network. Exit 1 on errors |
+| `status`     | Active profile, every request (`[base]`, `[profile x]`, `[link]`) and its lock pin, and every mismatch between request, lock, `.ai/installed/`, hosts, and `.gitignore`. Never touches the network. Exit 1 on errors |
 | `outdated`   | Lock pins vs what each ref or range points to now, and newer release tags. Exit 1 when behind             |
 | `link`       | Install a local folder (a git checkout, uncommitted files included, or any folder of skills). Not locked  |
 | `unlink`     | Drop the link; reinstall the committed request if there is one                                            |
@@ -57,14 +58,15 @@ A profile is an agent role — builder, tester, reviewer — with its own prompt
 on top of the base every profile gets:
 
 ```
-ai-plugin.json, ai-plugin.lock.json         the base (committed)
-.ai-profiles/builder/prompt.md                       the builder's prompt (committed)
-.ai-profiles/builder/ai-plugin.json, …lock.json      the builder's plugins (committed)
-.ai-profiles/current → builder                       the active profile (local)
+ai-plugin.json, ai-plugin.lock.json                 the base (committed)
+.ai/profiles/builder/prompt.md                      the builder's prompt (committed)
+.ai/profiles/builder/ai-plugin.json, …lock.json     the builder's plugins (committed)
+.ai/current → profiles/builder                      the active profile (local)
+.ai/installed/                                      installed plugins and state (local)
 ```
 
 ```bash
-deck profile new builder                         # .ai-profiles/builder/ with prompt.md and an empty request
+deck profile new builder                         # .ai/profiles/builder/ with prompt.md and an empty request
 deck add anthropics/skills --skill pdf --profile builder
 deck profile use builder                         # base + builder installed; then a new Claude session / reload Cursor
 deck profile use tester                          # builder's plugins leave, tester's arrive, the base is untouched
@@ -73,11 +75,11 @@ deck profile list                                # * marks the active one
 ```
 
 `deck add --profile x` on a profile that is not active resolves and locks the plugin in
-`.ai-profiles/x/` without installing it. A plugin id belongs to the base or to a profile, not both.
+`.ai/profiles/x/` without installing it. A plugin id belongs to the base or to a profile, not both.
 
-The prompt follows `.ai-profiles/current`: `profile use` adds `@.ai-profiles/current/prompt.md` to
+The prompt follows `.ai/current`: `profile use` adds `@.ai/current/prompt.md` to
 `CLAUDE.md` once, and writes `.cursor/rules/deck-profile.mdc` (`alwaysApply`) from the
-profile's `prompt.md`. `profile off` removes both. `.ai-profiles/current` and the Cursor rule are
+profile's `prompt.md`. `profile off` removes both. `.ai/current` and the Cursor rule are
 listed in an existing `.gitignore`.
 
 ## Materialize
@@ -93,7 +95,7 @@ deck materialize --profile builder --out /tmp/agents/builder --json
 ```json
 {
   "profile": "builder",
-  "prompt": "/path/to/project/.ai-profiles/builder/prompt.md",
+  "prompt": "/path/to/project/.ai/profiles/builder/prompt.md",
   "out": "/tmp/agents/builder",
   "plugins": [
     { "id": "git-workflow", "path": "/tmp/agents/builder/git-workflow", "integrity": "sha256-…", "components": { "skills": ["commit", "…"], "…": [] } }
@@ -103,9 +105,9 @@ deck materialize --profile builder --out /tmp/agents/builder --json
 
 - Always frozen: a request a lock does not pin, or content that differs from its
   integrity, is refused.
-- `--profile` names the profile; `.ai-profiles/current` is not read, so several profiles can be
+- `--profile` names the profile; `.ai/current` is not read, so several profiles can be
   built side by side. Local links are ignored: the output is what is committed.
-- Writes only in `--out`: nothing in `.claude/`, `.cursor/`, the locks, `.deck/`,
+- Writes only in `--out`: nothing in `.claude/`, `.cursor/`, the locks, `.ai/installed/`,
   `.gitignore`, or `AGENTS.md`. A plugin already in `--out` with the locked integrity is
   kept; a folder of a plugin no longer requested is removed.
 
@@ -145,11 +147,11 @@ Inside a fetched source, deck finds the plugin the way Claude Code and Cursor do
 
 ## What gets installed
 
-Every plugin is first normalized under `.deck/plugins/<id>/`: `skills/`, `agents/`,
+Every plugin is first normalized under `.ai/installed/plugins/<id>/`: `skills/`, `agents/`,
 `commands/`, `rules/`, `hooks/hooks.json`, `mcp.json`, its support files, and generated
 `.claude-plugin/plugin.json`, `.cursor-plugin/plugin.json`, and root `plugin.json`. That
 tree loads as is with `claude --plugin-dir` and `cursor-agent --plugin-dir`.
-`.deck/.claude-plugin/marketplace.json` lists every installed plugin as a local
+`.ai/installed/.claude-plugin/marketplace.json` lists every installed plugin as a local
 marketplace.
 
 Then each host is activated. `ai-plugin.json` can set a mode per host:
@@ -160,14 +162,14 @@ Then each host is activated. `ai-plugin.json` can set a mode per host:
 
 | Mode     | Claude Code                                                                 | Cursor                                   |
 | -------- | --------------------------------------------------------------------------- | ---------------------------------------- |
-| `native` | default — `.deck/` is a local marketplace; each plugin is installed from it | not supported, falls back to `copy`      |
+| `native` | default — `.ai/installed/` is a local marketplace; each plugin is installed from it | not supported, falls back to `copy`      |
 | `copy`   | vendor components into `.claude/`, `.mcp.json`                              | default — vendor into `.cursor/`         |
 | `off`    | nothing for that host                                                       | nothing for that host                    |
 
-**Native (Claude Code).** deck runs `claude plugin marketplace add <project>/.deck --scope
+**Native (Claude Code).** deck runs `claude plugin marketplace add <project>/.ai/installed --scope
 local`, then `claude plugin install <id>@deck --scope local` for each plugin (and
 `plugin uninstall` when it goes). An installed plugin needs no further call: Claude reads
-its tree in place. Claude reads `.deck/plugins/<id>/` in place,
+its tree in place. Claude reads `.ai/installed/plugins/<id>/` in place,
 so hooks, commands, agents, MCP servers, and `${CLAUDE_PLUGIN_ROOT}` work as the plugin
 author intended, and skills are namespaced (`impeccable:impeccable`). The registration is
 recorded in `.claude/settings.local.json` and in the user's plugin registry, so every
@@ -177,7 +179,7 @@ removed when no plugin is installed from it.
 
 **Cursor.** `cursor-agent` ignores plugin paths returned by a `workspaceOpen` hook (checked
 with cursor-agent 2026.10.01), so Cursor uses copy mode. Agent runners can still pass
-`.deck/plugins/<id>` to `cursor-agent --plugin-dir`.
+`.ai/installed/plugins/<id>` to `cursor-agent --plugin-dir`.
 
 Copy mode writes:
 
@@ -247,7 +249,7 @@ pinned source is downloaded once per machine.
 `install --frozen` refuses a request the lock does not pin, a lock entry nothing
 requests, and a normalized tree whose integrity differs — use it in CI.
 
-When a `.gitignore` exists, deck lists `.deck/` and `ai-plugin.local.json` in it.
+When a `.gitignore` exists, deck lists `.ai/installed/` and `ai-plugin.local.json` in it.
 
 ## Developing a plugin
 

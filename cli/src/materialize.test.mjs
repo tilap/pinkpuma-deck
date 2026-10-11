@@ -31,7 +31,7 @@ test("writes the selected components in plugin layout with generated manifests",
     { skills: ["hello"] },
     { fallbackVersion: "0.0.0-deck.abc" },
   );
-  const dir = path.join(project, ".deck/plugins/Demo.Kit");
+  const dir = path.join(project, ".ai/installed/plugins/Demo.Kit");
   assert.equal(built.dir, dir);
   assert.ok(fs.existsSync(path.join(dir, "skills/hello/SKILL.md")));
   assert.ok(!fs.existsSync(path.join(dir, "skills/hello/DEFAULT_USAGE.md")));

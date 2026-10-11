@@ -1,17 +1,18 @@
 import fs from "node:fs";
 import path from "node:path";
 import { emptyLockfile, readLockfile, writeLockfile } from "./lockfile.mjs";
-import { PLUGINS_FILE } from "./paths.mjs";
+import { AI_DIR, PLUGINS_FILE } from "./paths.mjs";
 import { emptyPlugins, mergePluginRequests, readLocalPlugins, readPlugins } from "./plugins.mjs";
 
 /**
  * A project's plugin set: the base (root ai-plugin.json and lock, committed),
- * plus the active profile (.ai-profiles/<name>/ai-plugin.json and lock), plus local links.
+ * plus the active profile (.ai/profiles/<name>/ai-plugin.json and lock), plus local links.
  * Every command works on this merged view; locks are split back on save.
  */
 
-export const PROFILES_DIR = ".ai-profiles";
-export const CURRENT_LINK = `${PROFILES_DIR}/current`;
+export const PROFILES_DIR = `${AI_DIR}/profiles`;
+/** .ai/current → profiles/<name>: the active profile. */
+export const CURRENT_LINK = `${AI_DIR}/current`;
 
 export function profileDir(projectRoot, name) {
   return path.join(projectRoot, PROFILES_DIR, name);
@@ -21,7 +22,7 @@ export function isValidProfileName(name) {
   return typeof name === "string" && /^[A-Za-z0-9._-]+$/.test(name) && name !== "current" && !name.startsWith(".");
 }
 
-/** The active profile, from the .ai-profiles/current link, or null. */
+/** The active profile, from the .ai/current link, or null. */
 export function activeProfile(projectRoot) {
   const link = path.join(projectRoot, CURRENT_LINK);
   try {
@@ -33,7 +34,7 @@ export function activeProfile(projectRoot) {
   return fs.existsSync(path.join(profileDir(projectRoot, name), PLUGINS_FILE)) ? name : null;
 }
 
-/** Profile names: folders of .ai-profiles/ that hold an ai-plugin.json. */
+/** Profile names: folders of .ai/profiles/ that hold an ai-plugin.json. */
 export function listProfiles(projectRoot) {
   const dir = path.join(projectRoot, PROFILES_DIR);
   if (!fs.existsSync(dir)) return [];

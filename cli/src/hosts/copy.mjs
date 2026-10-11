@@ -4,7 +4,7 @@ import { HOSTS, pluginAssetRel } from "../paths.mjs";
 import { ownerOf } from "../state.mjs";
 
 /**
- * Copy mode: vendor a normalized plugin (`.deck/plugins/<id>/`) into the
+ * Copy mode: vendor a normalized plugin (`.ai/installed/plugins/<id>/`) into the
  * project paths each host scans. Used when a host cannot load the plugin
  * natively. Hooks are not activated in this mode; the result says so.
  */

@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { DECK_DIR, deckPluginRel } from "./paths.mjs";
+import { INSTALLED_DIR, deckPluginRel } from "./paths.mjs";
 
 /**
- * Write a located plugin to `.deck/plugins/<id>/` in the layout both hosts read
+ * Write a located plugin to `.ai/installed/plugins/<id>/` in the layout both hosts read
  * without help: skills/, agents/, commands/, rules/, hooks/hooks.json, mcp.json,
  * the plugin's support files, and freshly generated manifests.
  *
@@ -167,9 +167,9 @@ export function treeIntegrity(dir) {
   return `sha256-${hash.digest("hex")}`;
 }
 
-/** `.deck/.claude-plugin/marketplace.json`: the local marketplace Claude installs from. */
+/** `.ai/installed/.claude-plugin/marketplace.json`: the local marketplace Claude installs from. */
 export function writeDeckMarketplace(projectRoot, ids) {
-  const file = path.join(projectRoot, DECK_DIR, ".claude-plugin", "marketplace.json");
+  const file = path.join(projectRoot, INSTALLED_DIR, ".claude-plugin", "marketplace.json");
   writeJson(file, {
     name: "deck",
     owner: { name: "@pinkpuma/deck" },

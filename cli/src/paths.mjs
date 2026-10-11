@@ -4,9 +4,11 @@ export const PLUGINS_FILE = "ai-plugin.json";
 export const LOCAL_PLUGINS_FILE = "ai-plugin.local.json";
 export const LOCK_FILE = "ai-plugin.lock.json";
 
-/** Like node_modules: one normalized plugin per id, never committed. */
-export const DECK_DIR = ".deck";
-export const STATE_FILE = `${DECK_DIR}/state.json`;
+/** Everything AI-tooling in a project lives under .ai/. */
+export const AI_DIR = ".ai";
+/** Like node_modules: one normalized plugin per id, and what deck wrote here. Never committed. */
+export const INSTALLED_DIR = `${AI_DIR}/installed`;
+export const STATE_FILE = `${INSTALLED_DIR}/state.json`;
 
 /** Where copy mode writes plugin components for each host. */
 export const HOSTS = {
@@ -43,7 +45,7 @@ export function lockPath(projectRoot) {
 }
 
 export function deckPluginRel(id) {
-  return `${DECK_DIR}/plugins/${id}`;
+  return `${INSTALLED_DIR}/plugins/${id}`;
 }
 
 /** Filesystem-safe fragment of a marketplace id or entry id. */

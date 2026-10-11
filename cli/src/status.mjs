@@ -128,7 +128,7 @@ function checkProject(project, options) {
 
   const ignore = gitignoreStatus(projectRoot);
   if (ignore) {
-    if (!ignore.deckIgnored) warn(".deck/ is not in .gitignore");
+    if (!ignore.installedIgnored) warn(".ai/installed/ is not in .gitignore");
     if (!ignore.localIgnored) warn("ai-plugin.local.json is not in .gitignore");
     if (ignore.lockIgnored) warn(`${LOCK_FILE} is ignored by .gitignore; commit it instead`);
   }

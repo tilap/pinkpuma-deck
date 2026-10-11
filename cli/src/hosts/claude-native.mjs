@@ -1,12 +1,12 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { DECK_DIR } from "../paths.mjs";
+import { INSTALLED_DIR } from "../paths.mjs";
 
 /**
- * Native mode for Claude Code: `.deck/` is a local marketplace registered at
+ * Native mode for Claude Code: `.ai/installed/` is a local marketplace registered at
  * local scope, and each plugin is installed from it. Claude then reads
- * `.deck/plugins/<id>/` in place, with hooks, commands, MCP, and
+ * `.ai/installed/plugins/<id>/` in place, with hooks, commands, MCP, and
  * `${CLAUDE_PLUGIN_ROOT}` handled by Claude itself.
  *
  * Writing `.claude/settings.local.json` by hand is not enough: the install is
@@ -59,12 +59,12 @@ function localSettings(projectRoot) {
 }
 
 /**
- * Register `.deck/` as the `deck` marketplace at local scope. A directory
+ * Register `.ai/installed/` as the `deck` marketplace at local scope. A directory
  * marketplace is read in place: a plugin added to its catalog installs without
  * `marketplace update`.
  */
 export function ensureMarketplace(bin, projectRoot) {
-  const deckDir = path.join(projectRoot, DECK_DIR);
+  const deckDir = path.join(projectRoot, INSTALLED_DIR);
   const known = localSettings(projectRoot).extraKnownMarketplaces?.[MARKETPLACE]?.source;
   if (known?.source === "directory" && path.resolve(known.path) === path.resolve(deckDir)) return;
   if (known) claude(bin, projectRoot, ["plugin", "marketplace", "remove", MARKETPLACE]);
@@ -80,7 +80,7 @@ export function ensureMarketplace(bin, projectRoot) {
  * @param {string} name plugin manifest name (see materialize.pluginName)
  */
 export function nativeInstall(bin, projectRoot, name) {
-  // Already installed: Claude reads .deck/plugins/<id> in place, so new content needs no call.
+  // Already installed: Claude reads .ai/installed/plugins/<id> in place, so new content needs no call.
   if (isEnabled(projectRoot, name)) return;
   ensureMarketplace(bin, projectRoot);
   const id = `${name}@${MARKETPLACE}`;

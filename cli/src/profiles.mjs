@@ -5,8 +5,8 @@ import { CURRENT_LINK, PROFILES_DIR, isValidProfileName, profileDir } from "./pr
 
 /**
  * The prompt side of a profile. The plugins are deck's usual install; the
- * prompt is wired once and follows the .ai-profiles/current link:
- *   Claude Code  CLAUDE.md imports @.ai-profiles/current/prompt.md
+ * prompt is wired once and follows the .ai/current link:
+ *   Claude Code  CLAUDE.md imports @.ai/current/prompt.md
  *   Cursor       .cursor/rules/deck-profile.mdc (alwaysApply) holds a copy of prompt.md
  */
 
@@ -26,11 +26,12 @@ export function createProfile(projectRoot, name) {
   return dir;
 }
 
-/** Point .ai-profiles/current at a profile and wire its prompt for both hosts. */
+/** Point .ai/current at a profile and wire its prompt for both hosts. */
 export function useProfile(projectRoot, name) {
   const link = path.join(projectRoot, CURRENT_LINK);
   fs.rmSync(link, { force: true });
-  fs.symlinkSync(name, link);
+  fs.mkdirSync(path.dirname(link), { recursive: true });
+  fs.symlinkSync(path.relative(path.dirname(link), profileDir(projectRoot, name)), link);
   ensureClaudeImport(projectRoot);
   writeCursorRule(projectRoot, name);
   ensureProfileGitignore(projectRoot);
