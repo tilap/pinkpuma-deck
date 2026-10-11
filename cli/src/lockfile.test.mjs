@@ -46,40 +46,8 @@ test("npm and archive resolutions are validated", () => {
   assert.throws(() => ok({ type: "svn" }), /unknown type/);
 });
 
-test("a format 2 lock is converted and its machine paths kept aside", () => {
-  const root = tmp();
-  fs.writeFileSync(
-    path.join(root, "ai-plugin.lock.json"),
-    JSON.stringify({
-      lockfileVersion: 2,
-      writeAgentsMd: true,
-      plugins: [
-        {
-          marketplace: "tilap/toolbelt",
-          name: "git-workflow",
-          ref: "v1",
-          resolved: "d".repeat(40),
-          paths: [".claude/skills/commit"],
-          mcpKeys: {},
-          agentsSnippets: [],
-        },
-      ],
-    }),
-  );
-  const lock = readLockfile(root);
-  assert.equal(lock.lockfileVersion, 3);
-  assert.deepEqual(lock.plugins[0].request, {
-    id: "git-workflow",
-    source: "github:tilap/toolbelt",
-    plugin: "git-workflow",
-    ref: "v1",
-  });
-  assert.equal(lock.plugins[0].resolved.sha, "d".repeat(40));
-  assert.deepEqual(lock.legacyState["git-workflow"].paths, [".claude/skills/commit"]);
-});
-
 test("rejects unknown formats and inconsistent entries", () => {
-  assert.throws(() => normalizeLockfile({ lockfileVersion: 9, plugins: [] }), /supports 3/);
+  assert.throws(() => normalizeLockfile({ lockfileVersion: 9, plugins: [] }), /supports 3$/);
   assert.throws(() => normalizeLockfile({ plugins: [] }), /missing lockfileVersion/);
   assert.throws(
     () => normalizeLockfile({ lockfileVersion: 3, plugins: [{ ...entry("a"), id: "b" }] }),

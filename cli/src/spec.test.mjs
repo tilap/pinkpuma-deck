@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import {
   defaultId,
   descriptorFor,
-  fromLegacyRequest,
   githubFromUrl,
   normalizeRequest,
   parseAddSpec,
@@ -93,15 +92,6 @@ test("descriptorFor maps each source kind", () => {
     version: "1.0.0",
   });
   assert.throws(() => descriptorFor({ source: "archive:http://x/a.zip" }), /https/);
-});
-
-test("legacy requests convert to the current shape", () => {
-  assert.deepEqual(fromLegacyRequest({ marketplace: "tilap/toolbelt", name: "git-workflow", ref: "v1" }), {
-    id: "git-workflow",
-    source: "github:tilap/toolbelt",
-    plugin: "git-workflow",
-    ref: "v1",
-  });
 });
 
 test("helpers: defaultId, githubFromUrl, sameRequest", () => {

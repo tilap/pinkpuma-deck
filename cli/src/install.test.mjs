@@ -154,33 +154,6 @@ test("a linked working tree installs with uncommitted files and stays out of the
   assert.deepEqual(readLockfile(root).plugins, []);
 });
 
-test("a deck 0.6 install is migrated: its old files are removed on the next install", async () => {
-  const repo = marketplaceRepo();
-  const root = project({
-    ".claude/skills/old/SKILL.md": skill("old"),
-    "ai-plugin.lock.json": {
-      lockfileVersion: 2,
-      writeAgentsMd: true,
-      plugins: [
-        {
-          marketplace: "acme/kit",
-          name: "demo",
-          ref: "main",
-          resolved: repo.sha,
-          paths: [".claude/skills/old"],
-          mcpKeys: {},
-          agentsSnippets: [],
-        },
-      ],
-    },
-  });
-  const doc = { plugins: [{ id: "demo", source: `git:${repo.url}`, plugin: "demo" }] };
-  await installAll(root, doc, readLockfile(root));
-  assert.ok(!exists(root, ".claude/skills/old"), "files recorded by the old lock are replaced");
-  assert.ok(exists(root, ".claude/skills/hello"));
-  assert.equal(readLockfile(root).lockfileVersion, 3);
-});
-
 test("an npm package is packed without scripts and pinned by version", async (t) => {
   if (spawnSync("npm", ["--version"]).status !== 0) return t.skip("npm not available");
   const pkg = writeTree(tmp("deck-npm-src-"), {

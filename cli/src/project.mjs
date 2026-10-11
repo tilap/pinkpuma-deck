@@ -81,7 +81,6 @@ export function loadProject(projectRoot, options = {}) {
   lock.plugins = [...(baseLock?.plugins ?? []), ...(profLock?.plugins ?? [])].filter(
     (entry, i, all) => all.findIndex((e) => e.id === entry.id) === i,
   );
-  if (baseLock?.legacyState) lock.legacyState = baseLock.legacyState;
 
   /** Split a merged lock back into the base lock and the profile lock. */
   const saveLock = (merged) => {

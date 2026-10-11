@@ -162,13 +162,6 @@ function deactivate(projectRoot, id, state) {
   removeMaterialized(projectRoot, id);
 }
 
-/** Older locks carried machine paths; keep them so remove still works. */
-function adoptLegacyState(state, lock) {
-  for (const [id, entry] of Object.entries(lock?.legacyState ?? {})) {
-    if (!state.plugins[id]) state.plugins[id] = entry;
-  }
-}
-
 /**
  * Write the lock, the state, and the deck marketplace. `saveLock` lets a caller
  * split one in-memory lock across files (the base and the active profile).
@@ -189,7 +182,6 @@ function persist(projectRoot, lock, state, saveLock) {
  */
 export async function installOne(projectRoot, doc, request, lock, options = {}) {
   const state = readState(projectRoot);
-  adoptLegacyState(state, lock);
   let current = lock ?? emptyLockfile();
   const pin = pinFor(current, request, options.update);
   let resolved;
@@ -223,7 +215,6 @@ export async function installOne(projectRoot, doc, request, lock, options = {}) 
  */
 export function uninstallOne(projectRoot, id, lock, { keepFiles = false, saveLock } = {}) {
   const state = readState(projectRoot);
-  adoptLegacyState(state, lock);
   if (keepFiles) {
     delete state.plugins[id];
     removeMaterialized(projectRoot, id);
@@ -243,9 +234,7 @@ export function uninstallOne(projectRoot, id, lock, { keepFiles = false, saveLoc
  */
 export async function installAll(projectRoot, doc, lock, options = {}) {
   const state = readState(projectRoot);
-  adoptLegacyState(state, lock);
   let current = lock ? { ...lock, plugins: [...lock.plugins] } : emptyLockfile();
-  delete current.legacyState;
   const wanted = new Set(doc.plugins.map((p) => p.id));
   const updateIds = options.update === true ? null : new Set(options.update ?? []);
   const isUpdate = (id) => options.update === true || updateIds?.has(id);

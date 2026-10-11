@@ -1,13 +1,11 @@
 import fs from "node:fs";
 import { ensureDeckGitignored } from "./gitignore.mjs";
 import { LOCAL_PLUGINS_FILE, PLUGINS_FILE, localPluginsPath, pluginsPath } from "./paths.mjs";
-import { fromLegacyRequest, isLegacyRequest, normalizeRequest } from "./sources/spec.mjs";
+import { normalizeRequest } from "./sources/spec.mjs";
 
 /**
  * ai-plugin.json — what to install. Same role as package.json dependencies.
  *   { "plugins": [Request, …], "hosts": { "claude": "native", "cursor": "copy" }, "agentsMd": true }
- * Entries written by deck <= 0.6 (`{ marketplace, name, ref }`) are read and
- * rewritten in the current shape on the next write.
  *
  * @typedef {import("./sources/spec.mjs").Request} Request
  * @typedef {"copy" | "native" | "off"} HostMode
@@ -38,7 +36,7 @@ function normalizeList(list, file) {
   if (!Array.isArray(list)) throw new Error(`Invalid ${file}`);
   const seen = new Set();
   return list.map((raw, index) => {
-    const request = normalizeRequest(isLegacyRequest(raw) ? fromLegacyRequest(raw) : raw, `${file} plugins[${index}]`);
+    const request = normalizeRequest(raw, `${file} plugins[${index}]`);
     if (seen.has(request.id)) throw new Error(`${file}: duplicate id "${request.id}"`);
     seen.add(request.id);
     return request;
@@ -114,12 +112,7 @@ export function normalizeLocalPlugins(raw) {
 export function readLocalPlugins(projectRoot) {
   const file = localPluginsPath(projectRoot);
   if (!fs.existsSync(file)) return null;
-  const raw = JSON.parse(fs.readFileSync(file, "utf8"));
-  // deck 0.6 links: { marketplace, name, ref, from } → a local source.
-  const plugins = (raw.plugins ?? []).map((p) =>
-    isLegacyRequest(p) ? { id: p.name, source: `local:${p.from}`, plugin: p.name } : p,
-  );
-  return normalizeLocalPlugins({ plugins });
+  return normalizeLocalPlugins(JSON.parse(fs.readFileSync(file, "utf8")));
 }
 
 export function deleteLocalPlugins(projectRoot) {

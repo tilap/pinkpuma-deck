@@ -46,7 +46,6 @@ function checkProject(project, options) {
     return findings;
   }
   const { doc, lock } = project;
-  if (lock.legacyState) warn(`${LOCK_FILE} is in the deck 0.6 format. Run deck install to convert it.`);
   const state = readState(projectRoot);
   const modes = hostModes(doc);
 

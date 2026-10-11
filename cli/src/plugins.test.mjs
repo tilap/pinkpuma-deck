@@ -29,23 +29,6 @@ test("add, remove, and write requests sorted by id", () => {
   assert.throws(() => removePlugin(readPlugins(root), "zzz"), /No plugin with id/);
 });
 
-test("legacy entries are read and rewritten in the current shape", () => {
-  const root = tmp();
-  fs.writeFileSync(
-    path.join(root, "ai-plugin.json"),
-    JSON.stringify({ plugins: [{ marketplace: "tilap/toolbelt", name: "git-workflow", ref: "v1" }] }),
-  );
-  const doc = readPlugins(root);
-  assert.deepEqual(doc.plugins[0], {
-    id: "git-workflow",
-    source: "github:tilap/toolbelt",
-    plugin: "git-workflow",
-    ref: "v1",
-  });
-  writePlugins(root, doc);
-  assert.equal(readJson(path.join(root, "ai-plugin.json")).plugins[0].source, "github:tilap/toolbelt");
-});
-
 test("hosts modes are validated and duplicate ids refused", () => {
   const root = tmp();
   writePlugins(root, { plugins: [], hosts: { cursor: "off" } });
@@ -82,13 +65,4 @@ test("a local link overrides the committed request with the same id", () => {
     linked: true,
   });
   assert.equal(mergePluginRequests(null, null).plugins.length, 0);
-});
-
-test("deck 0.6 local links are read as local sources", () => {
-  const root = tmp();
-  fs.writeFileSync(
-    path.join(root, "ai-plugin.local.json"),
-    JSON.stringify({ plugins: [{ marketplace: "a/b", name: "demo", ref: "main", from: "/work/kit" }] }),
-  );
-  assert.deepEqual(readLocalPlugins(root).plugins, [{ id: "demo", source: "local:/work/kit", plugin: "demo" }]);
 });

@@ -18,56 +18,31 @@ function isListed(text, entry) {
 }
 
 /**
- * The lock line deck <= 0.6 wrote in its own block (the lines right after its
- * header). A lock line the user wrote elsewhere is theirs and stays.
- */
-function deckBlockLockLine(lines) {
-  const header = lines.findIndex((line) => line.trim() === DECK_HEADER);
-  if (header === -1) return -1;
-  for (let i = header + 1; i < lines.length && lines[i].trim() !== ""; i++) {
-    if ([LOCK_FILE, `/${LOCK_FILE}`].includes(lines[i].trim())) return i;
-  }
-  return -1;
-}
-
-/**
  * If the project already has a .gitignore, list `.deck/` and the local link
- * file in it, and drop the lock line an older deck added to its own block. Does not create
- * .gitignore. Idempotent.
- * @returns {{ wrote: boolean, reason: string, unignoredLock?: boolean }}
+ * file in it. Does not create .gitignore. Idempotent.
+ * @returns {{ wrote: boolean, reason: string }}
  */
 export function ensureDeckGitignored(projectRoot) {
   const file = path.join(projectRoot, GITIGNORE);
   if (!fs.existsSync(file)) return { wrote: false, reason: "missing" };
 
   const original = fs.readFileSync(file, "utf8");
-  const lines = original.split(/\r?\n/);
-  const lockLine = deckBlockLockLine(lines);
   let text = original;
-  let unignoredLock = false;
-  if (lockLine !== -1) {
-    lines.splice(lockLine, 1);
-    text = lines.join("\n");
-    unignoredLock = true;
-  }
-
   const missing = DECK_LOCAL_ENTRIES.filter((entry) => !isListed(text, entry));
-  if (missing.length === 0 && !unignoredLock) return { wrote: false, reason: "already" };
+  if (missing.length === 0) return { wrote: false, reason: "already" };
 
-  if (missing.length > 0) {
-    const headerPresent = text.includes(DECK_HEADER);
-    const block = `${headerPresent ? "" : `${DECK_HEADER}\n`}${missing.join("\n")}\n`;
-    if (headerPresent) {
-      text = text.replace(DECK_HEADER, `${DECK_HEADER}\n${missing.join("\n")}`);
-    } else if (text.length === 0) {
-      text = block;
-    } else {
-      text = `${text.replace(/\n*$/, "\n")}\n${block}`;
-    }
+  const headerPresent = text.includes(DECK_HEADER);
+  const block = `${headerPresent ? "" : `${DECK_HEADER}\n`}${missing.join("\n")}\n`;
+  if (headerPresent) {
+    text = text.replace(DECK_HEADER, `${DECK_HEADER}\n${missing.join("\n")}`);
+  } else if (text.length === 0) {
+    text = block;
+  } else {
+    text = `${text.replace(/\n*$/, "\n")}\n${block}`;
   }
   if (!text.endsWith("\n")) text += "\n";
   fs.writeFileSync(file, text, "utf8");
-  return { wrote: true, reason: "updated", unignoredLock };
+  return { wrote: true, reason: "updated" };
 }
 
 /**

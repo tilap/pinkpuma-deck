@@ -180,8 +180,6 @@ lock mirrors it as `writeAgentsMd`).
 }
 ```
 
-Entries written by deck 0.6 and earlier (`{ marketplace, name, ref }`) are read and
-rewritten in this shape.
 
 ## ai-plugin.lock.json
 
@@ -214,10 +212,7 @@ pinned source is downloaded once per machine.
 `install --frozen` refuses a request the lock does not pin, a lock entry nothing
 requests, and a normalized tree whose integrity differs — use it in CI.
 
-A format 2 lock (deck 0.6) is converted on the next `install`; the paths it recorded move
-to `.deck/state.json` so the files an older deck wrote are replaced. When a `.gitignore`
-exists, deck lists `.deck/` and `ai-plugin.local.json` in it and removes the
-`ai-plugin.lock.json` line an older deck added.
+When a `.gitignore` exists, deck lists `.deck/` and `ai-plugin.local.json` in it.
 
 ## Developing a plugin
 

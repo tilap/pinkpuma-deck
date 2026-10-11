@@ -20,19 +20,6 @@ test("lists .deck/ and the local link file once", () => {
   assert.equal(text, "node_modules\n\n# @pinkpuma/deck — local install\n.deck/\nai-plugin.local.json\n");
 });
 
-test("stops ignoring the lock an older deck ignored", () => {
-  const root = tmp();
-  fs.writeFileSync(
-    path.join(root, ".gitignore"),
-    "dist\n\n# @pinkpuma/deck — local install\nai-plugin.lock.json\nai-plugin.local.json\n",
-  );
-  const result = ensureDeckGitignored(root);
-  assert.equal(result.unignoredLock, true);
-  const text = fs.readFileSync(path.join(root, ".gitignore"), "utf8");
-  assert.ok(!text.includes("ai-plugin.lock.json"));
-  assert.match(text, /# @pinkpuma\/deck — local install\n\.deck\/\nai-plugin\.local\.json\n/);
-});
-
 test("an existing /.deck entry counts", () => {
   const root = tmp();
   fs.writeFileSync(path.join(root, ".gitignore"), "/.deck\nai-plugin.local.json\n");

@@ -58,21 +58,6 @@ export function normalizeRequest(raw, where = "request") {
   return out;
 }
 
-/** deck <= 0.6 wrote `{ marketplace, name, ref }`. */
-export function isLegacyRequest(raw) {
-  return raw && typeof raw === "object" && !raw.source && raw.marketplace && raw.name;
-}
-
-export function fromLegacyRequest(raw) {
-  return {
-    id: raw.name,
-    source: `github:${raw.marketplace}`,
-    plugin: raw.name,
-    ...(raw.ref ? { ref: raw.ref } : {}),
-    ...(raw.from ? { from: raw.from } : {}),
-  };
-}
-
 /**
  * Where to fetch a request's bytes from. `ref` and `sha` come from the request
  * or, for a reproducible install, from the lock.
