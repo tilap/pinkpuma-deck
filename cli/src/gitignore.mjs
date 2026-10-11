@@ -56,3 +56,18 @@ export function ensureDeckGitignored(projectRoot) {
   fs.writeFileSync(file, text, "utf8");
   return { wrote: true, reason: "updated", unignoredLock };
 }
+
+/**
+ * What an existing .gitignore says about deck's files, for `deck doctor`.
+ * @returns {null | { deckIgnored: boolean, localIgnored: boolean, lockIgnored: boolean }}
+ */
+export function gitignoreStatus(projectRoot) {
+  const file = path.join(projectRoot, GITIGNORE);
+  if (!fs.existsSync(file)) return null;
+  const text = fs.readFileSync(file, "utf8");
+  return {
+    deckIgnored: isListed(text, `${DECK_DIR}/`),
+    localIgnored: isListed(text, LOCAL_PLUGINS_FILE),
+    lockIgnored: isListed(text, LOCK_FILE),
+  };
+}

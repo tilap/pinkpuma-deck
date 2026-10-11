@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 import path from "node:path";
+import { doctor } from "./doctor.mjs";
 import { installAll, installOne, uninstallOne } from "./install.mjs";
+import { isOutdated, outdated } from "./outdated.mjs";
 import { emptyLockfile, readLockfile, setWriteAgentsMd } from "./lockfile.mjs";
 import { LOCAL_PLUGINS_FILE, LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
 import {
@@ -31,6 +33,8 @@ Usage:
   deck install [--frozen]          (alias: sync)
   deck update [<id>…]
   deck list
+  deck outdated
+  deck doctor
   deck link <checkout>[@<plugin>] [--id <id>] [--skill <name>]… [--path <dir>]
   deck unlink <id> [--keep-files]
   deck scaffold <name> --owner <name> [--dir <parent>]
@@ -41,6 +45,9 @@ Sources:
   git+<url>[#ref]          any git host (also git@host:owner/repo.git)
   npm:<package>[@version]  an npm package
   https://….zip|.tar.gz    an archive
+
+Hosts (ai-plugin.json "hosts"): claude = native (default, via the claude CLI) | copy | off
+                                cursor = copy (default) | off
 
 Common flags: --project <dir> (-C), --force (replace files deck did not write),
               --no-agents-md / --agents-md
@@ -238,6 +245,29 @@ async function main() {
         if (entry) console.log(`  locked: ${describe(entry)}`);
         else if (!request.linked) console.log("  not locked yet — run deck install");
       }
+      break;
+    }
+
+    case "outdated": {
+      const rows = outdated(root);
+      if (rows.length === 0) {
+        console.log("(nothing locked)");
+        break;
+      }
+      const table = [["id", "type", "current", "wanted", "latest", ""]].concat(
+        rows.map((r) => [r.id, r.type, r.current, r.wanted ?? "-", r.latest ?? "-", r.note ?? ""]),
+      );
+      const widths = table[0].map((_, i) => Math.max(...table.map((row) => String(row[i]).length)));
+      for (const row of table) console.log(row.map((cell, i) => String(cell).padEnd(widths[i])).join("  ").trimEnd());
+      if (rows.some(isOutdated)) process.exitCode = 1;
+      break;
+    }
+
+    case "doctor": {
+      const findings = doctor(root);
+      const mark = { error: "✖", warn: "!", ok: "✔" };
+      for (const f of findings) console.log(`${mark[f.level]} ${f.id ? `${f.id}: ` : ""}${f.message}`);
+      if (findings.some((f) => f.level === "error")) process.exitCode = 1;
       break;
     }
 

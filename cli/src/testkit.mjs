@@ -56,3 +56,7 @@ export function gitCommit(dir, files) {
 export function readJson(file) {
   return JSON.parse(fs.readFileSync(file, "utf8"));
 }
+
+export function gitTag(dir, tag) {
+  git(dir, "tag", tag);
+}
