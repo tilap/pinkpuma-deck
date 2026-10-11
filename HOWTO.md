@@ -120,6 +120,25 @@ move. `ai-plugin.json` lists what to install and
 `ai-plugin.local.json` (links to checkouts, which win over the same id) stay local; deck
 lists them in an existing `.gitignore`. See [cli/README.md](cli/README.md).
 
+**Agent profiles** — switch between agent profiles (builder, tester, …) in a project
+with [`scripts/ai-profile`](scripts/ai-profile). Each profile is a folder under `.ai/`
+with a `prompt.md` and its own deck request and lock (`"hosts": off`, edited with
+`deck -C .ai/<name> add …`); `.ai/common/` holds plugins every profile gets.
+
+```bash
+scripts/ai-profile new builder
+deck -C .ai/builder add anthropics/skills --skill pdf
+scripts/ai-profile enable builder   # then: new Claude session, reload the Cursor window
+scripts/ai-profile enable tester
+scripts/ai-profile off
+```
+
+`enable` merges `common` and the profile into the root `ai-plugin.json` and lock (both
+gitignored: they are generated) and runs `deck install --frozen`, which removes the
+previous profile's plugins and skips the shared ones. `CLAUDE.md` imports
+`@.ai/current/prompt.md`; Cursor gets `.cursor/rules/ai-profile.mdc`. Set `DECK` to run a
+deck other than the one on `PATH` (for example `DECK="node /path/to/cli/src/cli.mjs"`).
+
 **Author a new marketplace** — empty repo layout (no plugins yet):
 
 ```bash
