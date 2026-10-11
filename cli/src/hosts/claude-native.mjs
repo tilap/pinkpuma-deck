@@ -59,16 +59,14 @@ function localSettings(projectRoot) {
 }
 
 /**
- * Register `.deck/` as the `deck` marketplace at local scope, or refresh its
- * catalog so a plugin added to it can be installed.
+ * Register `.deck/` as the `deck` marketplace at local scope. A directory
+ * marketplace is read in place: a plugin added to its catalog installs without
+ * `marketplace update`.
  */
 export function ensureMarketplace(bin, projectRoot) {
   const deckDir = path.join(projectRoot, DECK_DIR);
   const known = localSettings(projectRoot).extraKnownMarketplaces?.[MARKETPLACE]?.source;
-  if (known?.source === "directory" && path.resolve(known.path) === path.resolve(deckDir)) {
-    must(claude(bin, projectRoot, ["plugin", "marketplace", "update", MARKETPLACE]), "claude plugin marketplace update");
-    return;
-  }
+  if (known?.source === "directory" && path.resolve(known.path) === path.resolve(deckDir)) return;
   if (known) claude(bin, projectRoot, ["plugin", "marketplace", "remove", MARKETPLACE]);
   must(
     claude(bin, projectRoot, ["plugin", "marketplace", "add", deckDir, "--scope", "local"]),
