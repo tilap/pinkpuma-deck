@@ -100,40 +100,54 @@ side effects. Keep `SKILL.md` bodies under ~500 lines; shared rules go in
 
 The `cli/` package is published as [`@pinkpuma/deck`](cli/README.md).
 
-**Consumer projects** — install/sync plugins into an app:
+**Consumer projects** — install plugins and skills into an app:
 
 ```bash
 npx @pinkpuma/deck init --project /path/to/app
 npx @pinkpuma/deck add owner/repo@plugin-name --ref v0.1.0 --project /path/to/app
-npx @pinkpuma/deck sync --project /path/to/app
+npx @pinkpuma/deck install --frozen --project /path/to/app
 
 # while editing a plugin, install that working tree into an app:
 npx @pinkpuma/deck link /path/to/marketplace@plugin-name --project /path/to/app
 ```
 
-It copies skills and agents into both `.claude/` and `.cursor/`, and merges MCP servers
-into `.mcp.json` and `.cursor/mcp.json`. `ai-plugin.json` lists what to install.
-`ai-plugin.lock.json` records the resolved commit and the paths that sync wrote.
-`ai-plugin.local.json` is a gitignored link to a checkout; on sync it wins over the
-same plugin in `ai-plugin.json`. Commit `ai-plugin.json`. When a `.gitignore` already
-exists, writing the lock or a link appends `ai-plugin.lock.json` and
-`ai-plugin.local.json` to it.
+Each plugin is normalized under `.ai/installed/plugins/<id>/`. Claude Code installs it natively
+from `.ai/installed/` as a local marketplace (hooks and commands included); Cursor gets copies in
+`.cursor/` (skills, agents, commands, rules, support files, MCP in `.cursor/mcp.json`).
+`deck status` checks the whole chain and `deck outdated` shows what `deck update` would
+move. `ai-plugin.json` lists what to install and
+`ai-plugin.lock.json` pins what it resolved to: commit both. `.ai/installed/` and
+`ai-plugin.local.json` (links to checkouts, which win over the same id) stay local; deck
+lists them in an existing `.gitignore`. See [cli/README.md](cli/README.md).
 
-**Author a new marketplace** — empty repo layout (no plugins yet):
+**Agent profiles** — switch between agent roles (builder, tester, …) in a project with
+`deck profile`. Each profile is a folder under `.ai/profiles/` with a `prompt.md` and its own
+request and lock, installed on top of the base:
 
 ```bash
-npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
-npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name" --dir /path/to/parent
+npx @pinkpuma/deck profile new builder --project /path/to/app
+npx @pinkpuma/deck add anthropics/skills --skill pdf --profile builder --project /path/to/app
+npx @pinkpuma/deck profile use builder --project /path/to/app
 ```
 
-Creates `<dir>/<name>/` with `.claude-plugin/marketplace.json`, empty `plugins/`,
-`AGENTS.md`, `HOWTO.md`, `README.md`, and `.gitignore`. See [cli/README.md](cli/README.md).
+See [cli/README.md](cli/README.md#profiles).
 
 When changing the CLI:
 
 ```bash
 cd cli && npm test
 ```
+
+`npm test` is the unit suite. The toolbelt scenario in [`cli/integration`](cli/integration/README.md) is separate and does not run on publish:
+
+```bash
+rm -rf cli/integration/sandbox
+node cli/integration/run.mjs \
+  --deck cli/src/cli.mjs \
+  --toolbelt /path/to/pinkpuma-toolbelt
+```
+
+Pull requests that change `cli/` run that scenario. The workflow checks out the private toolbelt repo with the Actions secret `TOOLBELT_READ_TOKEN` (contents: read on `tilap/pinkpuma-toolbelt`).
 
 Release: bump `cli/package.json` `version`, push to `main`, then tag `deck-vX.Y.Z`.
 GitHub Actions publishes via npm Trusted Publishing (OIDC) — no token, no manual

@@ -12,7 +12,6 @@
   "files": [
     "bin/**",
     "src/**/*.mjs",
-    "templates/**",
     "README.md"
   ],
   "scripts": {

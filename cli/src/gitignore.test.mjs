@@ -1,48 +1,43 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
-import { ensureLockGitignored } from "./gitignore.mjs";
-import { emptyLockfile, writeLockfile } from "./lockfile.mjs";
+import { BLOCK_END, BLOCK_START, gitignoreStatus, readBlock, writeGitignoreBlock } from "./gitignore.mjs";
+import { tmp } from "./testkit.mjs";
 
-test("ensureLockGitignored does nothing without a .gitignore", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  const result = ensureLockGitignored(dir);
-  assert.equal(result.wrote, false);
-  assert.equal(result.reason, "missing");
-  assert.ok(!fs.existsSync(path.join(dir, ".gitignore")));
+const read = (root) => fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+
+test("install never creates .gitignore; init does", () => {
+  const root = tmp();
+  assert.deepEqual(writeGitignoreBlock(root), { wrote: false, created: false });
+  assert.ok(!fs.existsSync(path.join(root, ".gitignore")));
+  assert.deepEqual(writeGitignoreBlock(root, { create: true }), { wrote: true, created: true });
+  assert.equal(
+    read(root),
+    `${BLOCK_START}\n.ai/installed/\n.ai/current\nai-plugin.local.json\n.cursor/rules/deck-profile.mdc\n${BLOCK_END}\n`,
+  );
 });
 
-test("ensureLockGitignored appends the lock path once", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  fs.writeFileSync(path.join(dir, ".gitignore"), "node_modules/\n");
-  assert.equal(ensureLockGitignored(dir).wrote, true);
-  const first = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-  assert.match(first, /node_modules\//);
-  assert.match(first, /^ai-plugin\.lock\.json$/m);
-  assert.match(first, /^ai-plugin\.local\.json$/m);
-  assert.equal(ensureLockGitignored(dir).wrote, false);
-  assert.equal(ensureLockGitignored(dir).reason, "already");
-  assert.equal(fs.readFileSync(path.join(dir, ".gitignore"), "utf8"), first);
+test("the block is appended once, then rewritten in place with the copies", () => {
+  const root = tmp();
+  fs.writeFileSync(path.join(root, ".gitignore"), "node_modules\n");
+  writeGitignoreBlock(root);
+  fs.appendFileSync(path.join(root, ".gitignore"), "dist\n");
+  writeGitignoreBlock(root, { copies: [".cursor/skills/commit", ".claude/agents/r.md", ".cursor/skills/commit"] });
+  const text = read(root);
+  assert.ok(text.startsWith("node_modules\n\n# >>> @pinkpuma/deck"));
+  assert.ok(text.endsWith(`${BLOCK_END}\ndist\n`), "lines after the block stay");
+  assert.deepEqual(readBlock(root).slice(4), ["/.claude/agents/r.md", "/.cursor/skills/commit"]);
+  assert.equal(writeGitignoreBlock(root, { copies: [".claude/agents/r.md", ".cursor/skills/commit"] }).wrote, false);
+  writeGitignoreBlock(root, { copies: [] });
+  assert.equal(readBlock(root).length, 4);
 });
 
-test("writeLockfile adds the lock path to an existing .gitignore", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  fs.writeFileSync(path.join(dir, ".gitignore"), ".DS_Store\n");
-  writeLockfile(dir, emptyLockfile());
-  const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-  assert.match(text, /^ai-plugin\.lock\.json$/m);
-  assert.match(text, /^ai-plugin\.local\.json$/m);
-  assert.ok(fs.existsSync(path.join(dir, "ai-plugin.lock.json")));
-});
-
-test("ensureLockGitignored appends only the local file when the lock is already ignored", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mk-gi-"));
-  fs.writeFileSync(path.join(dir, ".gitignore"), "ai-plugin.lock.json\n");
-  assert.equal(ensureLockGitignored(dir).wrote, true);
-  const text = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
-  assert.equal(text.match(/^ai-plugin\.lock\.json$/gm).length, 1);
-  assert.match(text, /^ai-plugin\.local\.json$/m);
-  assert.equal(ensureLockGitignored(dir).reason, "already");
+test("status reads the block and a lock the user ignored", () => {
+  const root = tmp();
+  assert.equal(gitignoreStatus(root), null);
+  fs.writeFileSync(path.join(root, ".gitignore"), "ai-plugin.lock.json\n");
+  assert.deepEqual(gitignoreStatus(root), { block: false, lockIgnored: true });
+  writeGitignoreBlock(root);
+  assert.equal(gitignoreStatus(root).block, true);
 });

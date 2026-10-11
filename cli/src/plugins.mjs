@@ -1,41 +1,60 @@
 import fs from "node:fs";
-import { entryId, parsePluginSpec } from "./lockfile.mjs";
-import {
-  LOCAL_PLUGINS_FILE,
-  PLUGINS_FILE,
-  localPluginsPath,
-  pluginsPath,
-} from "./paths.mjs";
-import { ensureLockGitignored } from "./gitignore.mjs";
+import { LOCAL_PLUGINS_FILE, PLUGINS_FILE, localPluginsPath, pluginsPath } from "./paths.mjs";
+import { normalizeRequest } from "./sources/spec.mjs";
 
 /**
- * Requested plugins. Same role as package.json dependencies: what to install,
- * not what the last sync wrote.
- * @typedef {{ marketplace: string, name: string, ref: string }} PluginRequest
- * @typedef {{ plugins: PluginRequest[] }} PluginsFile
+ * ai-plugin.json — what to install. Same role as package.json dependencies.
+ *   { "plugins": [Request, …], "hosts": { "claude": "native", "cursor": "copy" }, "agentsMd": true }
+ *
+ * @typedef {import("./sources/spec.mjs").Request} Request
+ * @typedef {"copy" | "native" | "off"} HostMode
+ * @typedef {{ plugins: Request[], hosts?: { claude?: HostMode, cursor?: HostMode }, agentsMd?: boolean, gitignoreCopies?: boolean }} PluginsFile
  */
+
+const HOST_MODES = new Set(["copy", "native", "off"]);
 
 export function emptyPlugins() {
   return { plugins: [] };
 }
 
+function normalizeHosts(hosts) {
+  if (hosts == null) return undefined;
+  if (typeof hosts !== "object") throw new Error(`${PLUGINS_FILE} hosts must be an object`);
+  const out = {};
+  for (const [name, mode] of Object.entries(hosts)) {
+    if (!["claude", "cursor"].includes(name)) throw new Error(`${PLUGINS_FILE} hosts.${name}: unknown host`);
+    if (!HOST_MODES.has(mode)) {
+      throw new Error(`${PLUGINS_FILE} hosts.${name} must be one of ${[...HOST_MODES].join(", ")}`);
+    }
+    out[name] = mode;
+  }
+  return out;
+}
+
+function normalizeList(list, file) {
+  if (!Array.isArray(list)) throw new Error(`Invalid ${file}`);
+  const seen = new Set();
+  return list.map((raw, index) => {
+    const request = normalizeRequest(raw, `${file} plugins[${index}]`);
+    if (seen.has(request.id)) throw new Error(`${file}: duplicate id "${request.id}"`);
+    seen.add(request.id);
+    return request;
+  });
+}
+
 export function normalizePlugins(raw) {
-  if (!raw || typeof raw !== "object" || !Array.isArray(raw.plugins)) {
-    throw new Error(`Invalid ${PLUGINS_FILE}`);
+  if (!raw || typeof raw !== "object") throw new Error(`Invalid ${PLUGINS_FILE}`);
+  const hosts = normalizeHosts(raw.hosts);
+  for (const key of ["agentsMd", "gitignoreCopies"]) {
+    if (raw[key] != null && typeof raw[key] !== "boolean") {
+      throw new Error(`${PLUGINS_FILE} ${key} must be true or false`);
+    }
   }
   return {
-    plugins: raw.plugins.map((plugin, index) => {
-      if (!plugin?.marketplace || !plugin?.name || !plugin?.ref) {
-        throw new Error(
-          `${PLUGINS_FILE} plugins[${index}] requires marketplace, name, and ref`,
-        );
-      }
-      return {
-        marketplace: plugin.marketplace,
-        name: plugin.name,
-        ref: plugin.ref,
-      };
-    }),
+    plugins: normalizeList(raw.plugins, PLUGINS_FILE).map(({ from, ...request }) => request),
+    ...(hosts ? { hosts } : {}),
+    ...(raw.agentsMd === false ? { agentsMd: false } : {}),
+    ...(raw.gitignoreCopies === false ? { gitignoreCopies: false } : {}),
   };
 }
 
@@ -47,84 +66,49 @@ export function readPlugins(projectRoot) {
 
 export function writePlugins(projectRoot, doc) {
   const normalized = normalizePlugins(doc);
-  normalized.plugins.sort((a, b) => entryId(a).localeCompare(entryId(b)));
-  fs.writeFileSync(
-    pluginsPath(projectRoot),
-    `${JSON.stringify(normalized, null, 2)}\n`,
-    "utf8",
-  );
+  normalized.plugins.sort((a, b) => a.id.localeCompare(b.id));
+  fs.writeFileSync(pluginsPath(projectRoot), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return normalized;
 }
 
 export function ensurePlugins(projectRoot) {
-  const existing = readPlugins(projectRoot);
-  if (existing) return existing;
-  return writePlugins(projectRoot, emptyPlugins());
+  return readPlugins(projectRoot) ?? writePlugins(projectRoot, emptyPlugins());
 }
 
-export function addPlugin(doc, { marketplace, name, ref }) {
-  const id = entryId({ marketplace, name });
-  const plugins = doc.plugins.filter((plugin) => entryId(plugin) !== id);
-  plugins.push({ marketplace, name, ref: ref || "main" });
-  return { plugins };
+export function addPlugin(doc, request) {
+  return { ...doc, plugins: [...doc.plugins.filter((p) => p.id !== request.id), request] };
 }
 
-export function removePlugin(doc, spec) {
-  const { marketplace, name } = parsePluginSpec(spec);
-  const id = entryId({ marketplace, name });
-  const plugins = doc.plugins.filter((plugin) => entryId(plugin) !== id);
-  if (plugins.length === doc.plugins.length) {
-    throw new Error(`No plugin entry for ${id}`);
-  }
-  return { plugins };
+export function removePlugin(doc, id) {
+  const plugins = doc.plugins.filter((plugin) => plugin.id !== id);
+  if (plugins.length === doc.plugins.length) throw new Error(`No plugin with id "${id}" in ${PLUGINS_FILE}`);
+  return { ...doc, plugins };
 }
 
 /**
- * Parse `<checkout>@<plugin>`. The checkout may be relative; `@` in the path is
- * kept because the split is the last `@`.
+ * Parse `<checkout>[@<plugin>]`. The checkout may be relative; `@` in the path
+ * is kept because the split is the last `@` after the last `/`.
  */
 export function parseLinkSpec(spec) {
+  const slash = Math.max(spec.lastIndexOf("/"), spec.lastIndexOf("\\"));
   const at = spec.lastIndexOf("@");
-  if (at <= 0 || at === spec.length - 1) {
-    throw new Error(
-      `Invalid link "${spec}". Expected <checkout>@<plugin-name>`,
-    );
+  if (at > slash && at > 0) {
+    const name = spec.slice(at + 1);
+    if (!name) throw new Error(`Invalid link "${spec}". Expected <checkout>[@<plugin-name>]`);
+    return { checkout: spec.slice(0, at), name };
   }
-  const name = spec.slice(at + 1);
-  if (!name || name.includes("/") || name.includes("\\")) {
-    throw new Error(`Invalid plugin name "${name}"`);
-  }
-  return { checkout: spec.slice(0, at), name };
+  return { checkout: spec, name: undefined };
 }
 
-/**
- * @typedef {PluginRequest & { from: string }} LocalPluginRequest
- * @typedef {{ plugins: LocalPluginRequest[] }} LocalPluginsFile
- */
-
-function normalizeLocalEntry(plugin, index) {
-  if (!plugin?.marketplace || !plugin?.name || !plugin?.ref || !plugin?.from) {
-    throw new Error(
-      `${LOCAL_PLUGINS_FILE} plugins[${index}] requires marketplace, name, ref, and from`,
-    );
-  }
-  return {
-    marketplace: plugin.marketplace,
-    name: plugin.name,
-    ref: plugin.ref,
-    from: plugin.from,
-  };
-}
+// --- ai-plugin.local.json: gitignored links to working trees ---------------
 
 export function emptyLocalPlugins() {
   return { plugins: [] };
 }
 
 export function normalizeLocalPlugins(raw) {
-  if (!raw || typeof raw !== "object" || !Array.isArray(raw.plugins)) {
-    throw new Error(`Invalid ${LOCAL_PLUGINS_FILE}`);
-  }
-  return { plugins: raw.plugins.map(normalizeLocalEntry) };
+  if (!raw || typeof raw !== "object") throw new Error(`Invalid ${LOCAL_PLUGINS_FILE}`);
+  return { plugins: normalizeList(raw.plugins, LOCAL_PLUGINS_FILE) };
 }
 
 export function readLocalPlugins(projectRoot) {
@@ -139,60 +123,36 @@ export function deleteLocalPlugins(projectRoot) {
 
 export function writeLocalPlugins(projectRoot, doc) {
   const normalized = normalizeLocalPlugins(doc);
-  normalized.plugins.sort((a, b) => entryId(a).localeCompare(entryId(b)));
-  fs.writeFileSync(
-    localPluginsPath(projectRoot),
-    `${JSON.stringify(normalized, null, 2)}\n`,
-    "utf8",
-  );
-  ensureLockGitignored(projectRoot);
+  normalized.plugins.sort((a, b) => a.id.localeCompare(b.id));
+  fs.writeFileSync(localPluginsPath(projectRoot), `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
   return normalized;
 }
 
-export function addLocalPlugin(doc, plugin) {
-  const id = entryId(plugin);
-  const plugins = doc.plugins.filter((item) => entryId(item) !== id);
-  plugins.push(normalizeLocalEntry(plugin, plugins.length));
+export function addLocalPlugin(doc, request) {
+  return { plugins: [...doc.plugins.filter((p) => p.id !== request.id), request] };
+}
+
+export function removeLocalPlugin(doc, id) {
+  const plugins = doc.plugins.filter((plugin) => plugin.id !== id);
+  if (plugins.length === doc.plugins.length) throw new Error(`No linked plugin "${id}"`);
   return { plugins };
 }
 
-export function removeLocalPlugin(doc, spec) {
-  const { marketplace, name } = parsePluginSpec(spec);
-  const id = entryId({ marketplace, name });
-  const plugins = doc.plugins.filter((plugin) => entryId(plugin) !== id);
-  if (plugins.length === doc.plugins.length) {
-    throw new Error(`No linked plugin ${id}`);
-  }
-  return { plugins };
-}
-
-/** Local requests replace a committed request with the same marketplace and name. */
+/** Local links replace a committed request with the same id. */
 export function mergePluginRequests(committed, local) {
   const map = new Map();
-  for (const plugin of committed?.plugins ?? []) {
-    map.set(entryId(plugin), {
-      marketplace: plugin.marketplace,
-      name: plugin.name,
-      ref: plugin.ref,
-    });
-  }
-  for (const plugin of local?.plugins ?? []) {
-    map.set(entryId(plugin), normalizeLocalEntry(plugin, 0));
-  }
+  for (const plugin of committed?.plugins ?? []) map.set(plugin.id, plugin);
+  for (const plugin of local?.plugins ?? []) map.set(plugin.id, { ...plugin, linked: true });
   return {
-    plugins: [...map.values()].sort((a, b) => entryId(a).localeCompare(entryId(b))),
+    ...(committed?.hosts ? { hosts: committed.hosts } : {}),
+    plugins: [...map.values()].sort((a, b) => a.id.localeCompare(b.id)),
   };
 }
 
-/**
- * Committed request plus local links. Null when neither file exists.
- */
+/** Committed request plus local links. Null when neither file exists. */
 export function readRequestedPlugins(projectRoot) {
   const committed = readPlugins(projectRoot);
   const local = readLocalPlugins(projectRoot);
   if (!committed && !local) return null;
-  return mergePluginRequests(
-    committed ?? emptyPlugins(),
-    local ?? emptyLocalPlugins(),
-  );
+  return mergePluginRequests(committed ?? emptyPlugins(), local ?? emptyLocalPlugins());
 }

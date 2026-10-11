@@ -1,0 +1,54 @@
+name: Integration
+
+on:
+  pull_request:
+    paths:
+      - "cli/**"
+      - ".github/workflows/integration.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  toolbelt:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require toolbelt token
+        env:
+          TOKEN: ${{ secrets.TOOLBELT_READ_TOKEN }}
+        run: |
+          if [ -z "${TOKEN}" ]; then
+            echo "Set the TOOLBELT_READ_TOKEN secret: contents read on tilap/pinkpuma-toolbelt."
+            exit 1
+          fi
+
+      - name: Checkout deck
+        uses: actions/checkout@v4
+
+      - name: Checkout toolbelt
+        uses: actions/checkout@v4
+        with:
+          repository: tilap/pinkpuma-toolbelt
+          path: toolbelt
+          token: ${{ secrets.TOOLBELT_READ_TOKEN }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: Run scenario
+        run: |
+          rm -rf cli/integration/sandbox
+          node cli/integration/run.mjs \
+            --deck "${GITHUB_WORKSPACE}/cli/src/cli.mjs" \
+            --toolbelt "${GITHUB_WORKSPACE}/toolbelt"
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-results
+          path: cli/integration/results
+          if-no-files-found: ignore

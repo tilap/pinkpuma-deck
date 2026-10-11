@@ -1,8 +1,0 @@
-{
-  "name": "{{NAME}}",
-  "description": "Marketplace of Claude Code / Cursor plugins.",
-  "owner": {
-    "name": "{{OWNER}}"
-  },
-  "plugins": []
-}

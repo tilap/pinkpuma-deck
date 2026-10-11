@@ -14,19 +14,20 @@ Every plugin ships as a single source shared by both tools — see [HOWTO.md](HO
 
 ## CLI
 
-Consumer-side install/sync — npm package [`@pinkpuma/deck`](cli/README.md).
-`ai-plugin.json` is what you ask for. `ai-plugin.lock.json` is the resolved commit and the paths sync wrote. Commit `ai-plugin.json`; the lock is local (deck appends it to `.gitignore` when one already exists).
+Consumer-side install — npm package [`@pinkpuma/deck`](cli/README.md): any plugin or skill
+(GitHub marketplace, any git host, npm, archive, or a repository of skills) for Claude Code
+and Cursor. `ai-plugin.json` is what you ask for, `ai-plugin.lock.json` is what it resolved
+to — commit both, like `package.json` and `package-lock.json`.
 
 ```bash
-npx @pinkpuma/deck init
+npx @pinkpuma/deck init                # .gitignore, AGENTS.md, CLAUDE.md
 npx @pinkpuma/deck add owner/marketplace-repo@plugin-name --ref v0.1.0
-npx @pinkpuma/deck sync
+npx @pinkpuma/deck add anthropics/skills --skill pdf
+npx @pinkpuma/deck install --frozen   # on another machine, in CI
+npx @pinkpuma/deck profile use builder # switch agent profile (see cli/README.md#profiles)
 
 # install a plugin you are editing, without changing ai-plugin.json
 npx @pinkpuma/deck link /path/to/marketplace@plugin-name
-
-# author a new marketplace repo
-npx @pinkpuma/deck scaffold my-marketplace --owner "Your Name"
 ```
 
 ## Install (agent plugins)
