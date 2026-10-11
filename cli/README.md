@@ -29,6 +29,7 @@ deck outdated
 deck link <folder>[@<plugin>] [--skill <name>]…
 deck unlink <id>
 deck profile new|use|off|list [<name>]
+deck materialize --out <dir> [--profile <name>] [--json]
 ```
 
 | Command      | Effect                                                                                                    |
@@ -42,6 +43,7 @@ deck profile new|use|off|list [<name>]
 | `link`       | Install a local folder (a git checkout, uncommitted files included, or any folder of skills). Not locked  |
 | `unlink`     | Drop the link; reinstall the committed request if there is one                                            |
 | `profile`    | Agent profiles: see [Profiles](#profiles)                                                                 |
+| `materialize`| Build the base and one profile into a folder, for a tool that launches agents: see [Materialize](#materialize) |
 
 Every command takes `-C <dir>` (`--project`), `--force` (let copy mode replace a file deck
 did not write), and `--help`. An option a command does not take is refused.
@@ -77,6 +79,39 @@ The prompt follows `.ai/current`: `profile use` adds `@.ai/current/prompt.md` to
 `CLAUDE.md` once, and writes `.cursor/rules/deck-profile.mdc` (`alwaysApply`) from the
 profile's `prompt.md`. `profile off` removes both. `.ai/current` and the Cursor rule are
 listed in an existing `.gitignore`.
+
+## Materialize
+
+`deck materialize` builds what an agent needs to run, without installing anything in the
+project: the base and one profile (or the base alone), as pinned by their locks, each
+plugin in `<out>/<id>/` with its Claude Code and Cursor manifests.
+
+```bash
+deck materialize --profile builder --out /tmp/agents/builder --json
+```
+
+```json
+{
+  "profile": "builder",
+  "prompt": "/path/to/project/.ai/builder/prompt.md",
+  "out": "/tmp/agents/builder",
+  "plugins": [
+    { "id": "git-workflow", "path": "/tmp/agents/builder/git-workflow", "integrity": "sha256-…", "components": { "skills": ["commit", "…"], "…": [] } }
+  ]
+}
+```
+
+- Always frozen: a request a lock does not pin, or content that differs from its
+  integrity, is refused.
+- `--profile` names the profile; `.ai/current` is not read, so several profiles can be
+  built side by side. Local links are ignored: the output is what is committed.
+- Writes only in `--out`: nothing in `.claude/`, `.cursor/`, the locks, `.deck/`,
+  `.gitignore`, or `AGENTS.md`. A plugin already in `--out` with the locked integrity is
+  kept; a folder of a plugin no longer requested is removed.
+
+Load the result with `claude --plugin-dir <out>` (Claude loads every plugin in the folder)
+or one `cursor-agent --plugin-dir <out>/<id>` per plugin, and pass `prompt` as the
+agent's instructions.
 
 ## Sources
 

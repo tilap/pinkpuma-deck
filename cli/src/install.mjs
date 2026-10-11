@@ -7,7 +7,8 @@ import { claudeBin, isEnabled, nativeInstall, nativeUninstall, releaseMarketplac
 import { copyInstall, removeInstalledFiles } from "./hosts/copy.mjs";
 import { emptyLockfile, removeLockEntry, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
 import { materialize, pluginName, removeMaterialized, treeIntegrity, writeDeckMarketplace } from "./materialize.mjs";
-import { deckPluginRel } from "./paths.mjs";
+import { PLUGINS_FILE, deckPluginRel } from "./paths.mjs";
+import { loadProject } from "./project.mjs";
 import { fetchSource, pinDescriptor } from "./sources/fetch.mjs";
 import { locatePlugin } from "./sources/locate.mjs";
 import { descriptorFor, normalizeRequest, sameRequest } from "./sources/spec.mjs";
@@ -300,3 +301,60 @@ export async function lockOnly(request, pin, options = {}) {
 }
 
 export { pinFor };
+
+/**
+ * Build the base and one profile, as pinned by their locks, into `out/<id>/`,
+ * without touching the project: no host activation, no lock, state, .gitignore,
+ * or AGENTS.md. Local links are ignored: the output is what is committed.
+ * A plugin already in `out` with the locked integrity is kept as is; folders of
+ * plugins no longer requested are removed.
+ *
+ * @param {string} projectRoot
+ * @param {{ out: string, profile?: string | null, fetch?: typeof fetchSource }} options
+ */
+export async function materializeTo(projectRoot, options) {
+  const out = path.resolve(options.out);
+  const project = loadProject(projectRoot, { profile: options.profile ?? null });
+  if (!project.exists) throw new Error(`No ${PLUGINS_FILE}. Run deck add <source>.`);
+  // Links are local: the committed requests are what is built, even when a link overrides one.
+  const committed = [...project.base.plugins, ...(project.prof?.plugins ?? [])];
+  const unpinned = committed.filter((r) => !pinFor(project.lock, r, false)?.integrity);
+  if (unpinned.length > 0) {
+    throw new Error(`${unpinned.map((r) => r.id).join(", ")} not pinned by a lock. Run deck install (or deck add) first.`);
+  }
+
+  fs.mkdirSync(out, { recursive: true });
+  const wanted = new Set(committed.map((r) => r.id));
+  for (const entry of fs.readdirSync(out, { withFileTypes: true })) {
+    const dir = path.join(out, entry.name);
+    const isPlugin = fs.existsSync(path.join(dir, ".claude-plugin")) || fs.existsSync(path.join(dir, ".cursor-plugin"));
+    if (entry.isDirectory() && isPlugin && !wanted.has(entry.name)) fs.rmSync(dir, { recursive: true, force: true });
+  }
+
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "deck-materialize-"));
+  const plugins = [];
+  try {
+    for (const request of committed) {
+      const pin = pinFor(project.lock, request, false);
+      const dest = path.join(out, request.id);
+      let skipped = false;
+      if (fs.existsSync(dest) && treeIntegrity(dest) === pin.integrity) {
+        skipped = true;
+      } else {
+        const { built } = await resolveRequest(scratch, request, { pin, frozen: true, fetch: options.fetch });
+        fs.rmSync(dest, { recursive: true, force: true });
+        fs.cpSync(built.dir, dest, { recursive: true });
+      }
+      plugins.push({ id: request.id, path: dest, integrity: pin.integrity, components: pin.components, skipped });
+    }
+  } finally {
+    fs.rmSync(scratch, { recursive: true, force: true });
+  }
+  const prompt = project.profileRoot ? path.join(project.profileRoot, "prompt.md") : null;
+  return {
+    profile: project.profile,
+    prompt: prompt && fs.existsSync(prompt) ? prompt : null,
+    out,
+    plugins,
+  };
+}

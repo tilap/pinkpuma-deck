@@ -1675,6 +1675,49 @@ function buildSteps() {
       ],
     },
     {
+      id: "materialize-profile",
+      action: "deck materialize --profile builder --out <cible>/fixtures/agents/builder --json",
+      run(api) {
+        api.materialized = path.join(api.target, "fixtures", "agents", "builder");
+        api.requestBytes = readText(api.target, REQUEST_FILE);
+        api.deck(["materialize", "--profile", "builder", "--out", api.materialized, "--json"]);
+      },
+      checks: [
+        {
+          id: "base-plus-profile-built",
+          expected:
+            "Code 0. Le JSON nomme le profil builder et son prompt.md, et liste les plugins de base puis nextjs-app-structure, chacun dans <out>/<id> avec ses manifestes Claude et Cursor. Le projet n'est pas modifié (profil inactif, skill du profil absent, requête inchangée).",
+          test(api) {
+            const command = lastCommand(api);
+            let result = null;
+            try {
+              result = JSON.parse(command?.stdout ?? "");
+            } catch {}
+            const ids = (result?.plugins ?? []).map((p) => p.id);
+            const built = (result?.plugins ?? []).every(
+              (p) =>
+                p.path === path.join(api.materialized, p.id) &&
+                fs.existsSync(path.join(p.path, ".claude-plugin/plugin.json")) &&
+                fs.existsSync(path.join(p.path, ".cursor-plugin/plugin.json")),
+            );
+            const untouched =
+              !has(api.target, ".ai/current") &&
+              absence(api.target, skillRels("nextjs-app-structure")).ok &&
+              readText(api.target, REQUEST_FILE) === api.requestBytes;
+            const ok =
+              command?.exitCode === 0 &&
+              result?.profile === "builder" &&
+              result?.prompt === path.join(api.target, ".ai/builder/prompt.md") &&
+              ids.includes("git-workflow") &&
+              ids.at(-1) === "nextjs-app-structure" &&
+              built &&
+              untouched;
+            return { ok, actual: `exit=${command?.exitCode} ids=${ids.join(",")} built=${built} untouched=${untouched} ${(command?.stderr || "").trim()}` };
+          },
+        },
+      ],
+    },
+    {
       id: "old-commands-gone",
       action: "deck init, sync, list, doctor, scaffold ; deck status --frozen",
       run(api) {

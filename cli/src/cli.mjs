@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { installAll, installOne, lockOnly, pinFor, uninstallOne } from "./install.mjs";
+import { installAll, installOne, lockOnly, materializeTo, pinFor, uninstallOne } from "./install.mjs";
 import { readLockfile, removeLockEntry, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
 import { isOutdated, outdated } from "./outdated.mjs";
 import { LOCAL_PLUGINS_FILE, LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
@@ -36,6 +36,7 @@ Usage:
   deck link <folder>[@<plugin>] [--skill <name>]…
   deck unlink <id>
   deck profile new|use|off|list [<name>]
+  deck materialize --out <dir> [--profile <name>] [--json]
 
 Sources (add):
   owner/repo@plugin          a plugin from a GitHub marketplace
@@ -64,8 +65,8 @@ Settings in ai-plugin.json:
   "agentsMd": false        do not write the Skills block in AGENTS.md
 `;
 
-const VALUE_FLAGS = new Set(["ref", "profile", "id", "path", "sha256"]);
-const BOOL_FLAGS = new Set(["frozen", "force", "keep-files", "no-install", "help"]);
+const VALUE_FLAGS = new Set(["ref", "profile", "id", "path", "sha256", "out"]);
+const BOOL_FLAGS = new Set(["frozen", "force", "keep-files", "no-install", "json", "help"]);
 const GLOBAL_FLAGS = ["force", "help"];
 
 /** Flags each command takes, besides the global ones. */
@@ -79,6 +80,7 @@ const COMMANDS = {
   link: ["id", "skill", "path", "no-install"],
   unlink: ["keep-files"],
   profile: [],
+  materialize: ["out", "profile", "json"],
 };
 
 function parseArgs(argv) {
@@ -398,6 +400,22 @@ async function cmdProfile(root, args, rest) {
   }
 }
 
+async function cmdMaterialize(root, args) {
+  const out = args.flags.get("out");
+  if (!out) throw new Error("deck materialize needs --out <dir>");
+  const profile = args.flags.get("profile");
+  if (profile) targetDir(root, profile);
+  const result = await materializeTo(root, { out, profile: profile ?? null });
+  if (args.flags.has("json")) {
+    const plugins = result.plugins.map(({ skipped, ...plugin }) => plugin);
+    console.log(JSON.stringify({ ...result, plugins }, null, 2));
+    return;
+  }
+  console.log(`Materialized ${result.plugins.length} plugin(s)${profile ? ` (base + profile ${profile})` : " (base)"} into ${result.out}`);
+  for (const p of result.plugins) console.log(`  ${p.id}${p.skipped ? "  (up to date)" : ""}`);
+  if (result.prompt) console.log(`Prompt: ${result.prompt}`);
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
   const [cmd, ...rest] = args._;
@@ -428,6 +446,8 @@ async function main() {
       return cmdUnlink(root, args, rest);
     case "profile":
       return cmdProfile(root, args, rest);
+    case "materialize":
+      return cmdMaterialize(root, args);
   }
 }
 

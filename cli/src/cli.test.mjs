@@ -87,3 +87,68 @@ test("old commands and options are gone", () => {
     assert.match(deck(root, "install", flag, ...(flag === "--plugin" ? ["x"] : [])).err, new RegExp(`Unknown option: ${flag}`));
   }
 });
+
+function snapshot(root) {
+  const files = [];
+  const walk = (dir) => {
+    for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+      const abs = path.join(dir, e.name);
+      if (e.isDirectory()) walk(abs);
+      else files.push(`${path.relative(root, abs)}:${fs.statSync(abs).mtimeMs}`);
+    }
+  };
+  walk(root);
+  return files.sort().join("\n");
+}
+
+test("materialize builds the base and one profile into a folder, and nothing else", () => {
+  const repo = market();
+  const root = writeTree(tmp("deck-cli-"), { ".gitignore": "node_modules\n" });
+  const src = (name) => `git+${repo.url}@${name}`;
+  deck(root, "add", src("base-kit"));
+  deck(root, "profile", "new", "builder");
+  deck(root, "profile", "new", "tester");
+  deck(root, "add", src("build-kit"), "--profile", "builder");
+  deck(root, "add", src("test-kit"), "--profile", "tester");
+  const out = path.join(tmp("deck-out-"), "agents", "builder");
+  const before = snapshot(root);
+
+  const r = deck(root, "materialize", "--profile", "builder", "--out", out, "--json");
+  assert.equal(r.code, 0, r.err);
+  const result = JSON.parse(r.out);
+  assert.equal(result.profile, "builder");
+  assert.equal(result.prompt, path.join(root, ".ai/builder/prompt.md"));
+  assert.deepEqual(result.plugins.map((p) => p.id), ["base-kit", "build-kit"]);
+  for (const p of result.plugins) {
+    assert.equal(p.path, path.join(out, p.id));
+    assert.ok(fs.existsSync(path.join(p.path, ".claude-plugin/plugin.json")));
+    assert.ok(fs.existsSync(path.join(p.path, ".cursor-plugin/plugin.json")));
+    assert.match(p.integrity, /^sha256-/);
+  }
+  assert.deepEqual(result.plugins[1].components.skills, ["pdf"]);
+  assert.equal(snapshot(root), before, "the project is not touched");
+  assert.ok(!has(root, ".ai/current"));
+
+  const again = deck(root, "materialize", "--profile", "builder", "--out", out);
+  assert.match(again.out, /base-kit {2}\(up to date\)[\s\S]*build-kit {2}\(up to date\)/);
+
+  const swap = JSON.parse(deck(root, "materialize", "--profile", "tester", "--out", out, "--json").out);
+  assert.deepEqual(swap.plugins.map((p) => p.id), ["base-kit", "test-kit"]);
+  assert.ok(!fs.existsSync(path.join(out, "build-kit")), "a plugin no longer requested leaves the folder");
+
+  const base = JSON.parse(deck(root, "materialize", "--out", out, "--json").out);
+  assert.equal(base.profile, null);
+  assert.equal(base.prompt, null);
+  assert.deepEqual(base.plugins.map((p) => p.id), ["base-kit"]);
+});
+
+test("materialize refuses what the lock does not pin, and needs --out", () => {
+  const repo = market();
+  const root = tmp("deck-cli-");
+  deck(root, "add", `git+${repo.url}@base-kit`, "--no-install");
+  const r = deck(root, "materialize", "--out", tmp());
+  assert.equal(r.code, 1);
+  assert.match(r.err, /base-kit not pinned by a lock/);
+  assert.match(deck(root, "materialize").err, /needs --out/);
+  assert.match(deck(root, "materialize", "--out", tmp(), "--profile", "nope").err, /No profile "nope"/);
+});
