@@ -1,8 +1,9 @@
 import { rewriteAgentsMd } from "./agents.mjs";
 import { ensureDeckGitignored } from "./gitignore.mjs";
+import { claudeBin, nativeInstall, nativeUninstall, releaseMarketplace } from "./hosts/claude-native.mjs";
 import { copyInstall, removeInstalledFiles } from "./hosts/copy.mjs";
 import { emptyLockfile, removeLockEntry, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
-import { materialize, removeMaterialized, writeDeckMarketplace } from "./materialize.mjs";
+import { materialize, pluginName, removeMaterialized, writeDeckMarketplace } from "./materialize.mjs";
 import { fetchSource, pinDescriptor } from "./sources/fetch.mjs";
 import { locatePlugin } from "./sources/locate.mjs";
 import { descriptorFor, normalizeRequest, sameRequest } from "./sources/spec.mjs";
@@ -17,7 +18,8 @@ import { readState, writeState } from "./state.mjs";
  * @typedef {import("./lockfile.mjs").LockEntry} LockEntry
  */
 
-const DEFAULT_HOSTS = { claude: "copy", cursor: "copy" };
+/** Claude loads `.deck/` natively; cursor-agent ignores plugin paths from hooks, so Cursor copies. */
+const DEFAULT_HOSTS = { claude: "native", cursor: "copy" };
 
 export function hostModes(doc) {
   return { ...DEFAULT_HOSTS, ...(doc?.hosts ?? {}) };
@@ -74,25 +76,60 @@ export function fallbackVersion(resolved) {
   return `0.0.0-deck.${String(tag).replace(/[^0-9A-Za-z-]/g, "").slice(0, 12)}`;
 }
 
-/** Activate a normalized plugin for every host in copy mode. */
-function activate(projectRoot, id, pluginDir, modes, state, force) {
-  const copyHosts = Object.entries(modes)
-    .filter(([, mode]) => mode === "copy")
-    .map(([host]) => host);
-  for (const [host, mode] of Object.entries(modes)) {
-    if (mode === "native") {
-      throw new Error(`hosts.${host} = "native" is not available yet; use "copy"`);
+/** Host modes that can actually run here, with a warning for each fallback. */
+function effectiveModes(modes) {
+  const effective = { ...modes };
+  const warnings = [];
+  let bin = null;
+  if (effective.claude === "native") {
+    bin = claudeBin();
+    if (!bin) {
+      effective.claude = "copy";
+      warnings.push("claude: `claude` CLI not found, using copy mode");
     }
   }
+  if (effective.cursor === "native") {
+    effective.cursor = "copy";
+    warnings.push("cursor: cursor-agent cannot load plugins natively, using copy mode");
+  }
+  return { effective, warnings, bin };
+}
+
+/** Activate a normalized plugin for every host, natively or by copy. */
+function activate(projectRoot, id, pluginDir, modes, state, force) {
+  const { effective, warnings, bin } = effectiveModes(modes);
   const previous = state.plugins[id];
-  if (previous) removeInstalledFiles(projectRoot, previous);
+  if (previous) {
+    removeInstalledFiles(projectRoot, previous);
+    if (previous.native?.includes("claude") && effective.claude !== "native") {
+      const current = claudeBin();
+      if (current) nativeUninstall(current, projectRoot, pluginName(id));
+    }
+  }
+  const copyHosts = Object.entries(effective)
+    .filter(([, mode]) => mode === "copy")
+    .map(([host]) => host);
   const result = copyInstall(projectRoot, id, pluginDir, { hosts: copyHosts, state, previous, force });
-  state.plugins[id] = { paths: result.paths, mcpKeys: result.mcpKeys };
-  return result.warnings;
+  const entry = { paths: result.paths, mcpKeys: result.mcpKeys };
+  if (effective.claude === "native") {
+    writeDeckMarketplace(projectRoot, new Set([...Object.keys(state.plugins), id]));
+    nativeInstall(bin, projectRoot, pluginName(id));
+    entry.native = ["claude"];
+  }
+  state.plugins[id] = entry;
+  const hookWarnings = result.warnings;
+  return [...warnings, ...hookWarnings];
 }
 
 function deactivate(projectRoot, id, state) {
-  if (state.plugins[id]) removeInstalledFiles(projectRoot, state.plugins[id]);
+  const previous = state.plugins[id];
+  if (previous) {
+    removeInstalledFiles(projectRoot, previous);
+    if (previous.native?.includes("claude")) {
+      const bin = claudeBin();
+      if (bin) nativeUninstall(bin, projectRoot, pluginName(id));
+    }
+  }
   delete state.plugins[id];
   removeMaterialized(projectRoot, id);
 }
@@ -105,6 +142,11 @@ function adoptLegacyState(state, lock) {
 }
 
 function persist(projectRoot, lock, state) {
+  const anyNative = Object.values(state.plugins).some((entry) => entry.native?.includes("claude"));
+  if (!anyNative) {
+    const bin = claudeBin();
+    if (bin) releaseMarketplace(bin, projectRoot);
+  }
   writeLockfile(projectRoot, lock);
   writeState(projectRoot, state);
   writeDeckMarketplace(projectRoot, Object.keys(state.plugins));

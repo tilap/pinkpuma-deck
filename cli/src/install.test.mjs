@@ -9,6 +9,40 @@ import { readState } from "./state.mjs";
 import { gitCommit, gitRepo, readJson, skill, tmp, writeTree } from "./testkit.mjs";
 
 process.env.DECK_CACHE = tmp("deck-cache-");
+// Copy mode unless a test installs a fake `claude`.
+process.env.DECK_CLAUDE_BIN = "/nonexistent/claude";
+
+/** A stand-in for the claude CLI: logs calls and writes the settings the real one writes. */
+function fakeClaude() {
+  const dir = tmp("deck-fake-claude-");
+  const log = path.join(dir, "calls.log");
+  const bin = path.join(dir, "claude");
+  fs.writeFileSync(
+    bin,
+    `#!/usr/bin/env node
+const fs = require("node:fs");
+const path = require("node:path");
+const args = process.argv.slice(2);
+fs.appendFileSync(${JSON.stringify(log)}, args.join(" ") + "\\n");
+const file = path.join(process.cwd(), ".claude", "settings.local.json");
+const s = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+const [a, b, c] = args;
+if (a === "plugin" && b === "marketplace" && c === "add") {
+  s.extraKnownMarketplaces = { deck: { source: { source: "directory", path: args[3] } } };
+} else if (a === "plugin" && b === "install") {
+  s.enabledPlugins = { ...(s.enabledPlugins || {}), [c]: true };
+} else if (a === "plugin" && b === "uninstall") {
+  delete (s.enabledPlugins || {})[c];
+} else if (a === "plugin" && b === "marketplace" && c === "remove") {
+  delete (s.extraKnownMarketplaces || {}).deck;
+}
+fs.mkdirSync(path.dirname(file), { recursive: true });
+fs.writeFileSync(file, JSON.stringify(s));
+`,
+    { mode: 0o755 },
+  );
+  return { bin, calls: () => (fs.existsSync(log) ? fs.readFileSync(log, "utf8").trim().split("\n") : []) };
+}
 
 const exists = (root, rel) => fs.existsSync(path.join(root, rel));
 
@@ -176,12 +210,51 @@ test("an archive is checked against its sha256", async (t) => {
   }
 });
 
-test("hosts can be turned off, and native is refused for now", async () => {
+test("hosts can be turned off; without the claude CLI, native falls back to copy", async () => {
   const repo = marketplaceRepo();
   const root = project();
   const request = { id: "demo", source: `git:${repo.url}`, plugin: "demo" };
-  await installAll(root, { plugins: [request], hosts: { cursor: "off" } }, null);
+  const { results } = await installAll(root, { plugins: [request], hosts: { cursor: "off" } }, null);
   assert.ok(exists(root, ".claude/skills/hello"));
   assert.ok(!exists(root, ".cursor/skills/hello"));
-  await assert.rejects(installAll(project(), { plugins: [request], hosts: { claude: "native" } }, null), /not available yet/);
+  assert.ok(results[0].warnings.some((w) => w.includes("CLI not found")));
+});
+
+test("Claude native mode registers .deck/ and installs each plugin from it", async () => {
+  const fake = fakeClaude();
+  process.env.DECK_CLAUDE_BIN = fake.bin;
+  try {
+    const repo = marketplaceRepo();
+    const root = project();
+    const request = { id: "demo", source: `git:${repo.url}`, plugin: "demo" };
+    await installAll(root, { plugins: [request] }, null);
+
+    assert.ok(!exists(root, ".claude/skills/hello"), "nothing copied for Claude");
+    assert.ok(exists(root, ".cursor/skills/hello"), "Cursor still copies");
+    assert.deepEqual(readState(root).plugins.demo.native, ["claude"]);
+    const deckDir = path.join(root, ".deck");
+    assert.deepEqual(fake.calls(), [
+      `plugin marketplace add ${deckDir} --scope local`,
+      "plugin install demo@deck --scope local",
+    ]);
+    assert.equal(readJson(path.join(deckDir, ".claude-plugin/marketplace.json")).plugins[0].name, "demo");
+
+    await installAll(root, { plugins: [request] }, readLockfile(root));
+    assert.deepEqual(fake.calls().slice(2), [
+      "plugin marketplace update deck",
+      "plugin update demo@deck --scope local",
+    ]);
+
+    await installAll(root, { plugins: [] }, readLockfile(root));
+    assert.deepEqual(fake.calls().slice(-2), ["plugin uninstall demo@deck --scope local", "plugin marketplace remove deck"]);
+
+    // Switching back to copy uninstalls the native plugin and copies files.
+    await installAll(root, { plugins: [request] }, readLockfile(root));
+    await installAll(root, { plugins: [request], hosts: { claude: "copy" } }, readLockfile(root));
+    assert.ok(fake.calls().includes("plugin uninstall demo@deck --scope local"));
+    assert.equal(fake.calls().at(-1), "plugin marketplace remove deck");
+    assert.ok(exists(root, ".claude/skills/hello"));
+  } finally {
+    process.env.DECK_CLAUDE_BIN = "/nonexistent/claude";
+  }
 });
