@@ -85,9 +85,12 @@ ai-plugin.local.json
 # <<< @pinkpuma/deck
 ```
 
-Besides the local files, it lists every path copy mode wrote in `.claude/` and `.cursor/`:
-like `node_modules`, they come back with `deck install`, so the repository holds only the
-intent (`ai-plugin.json`, locks, profiles). `deck init --commit-copies` sets
+Besides the local files, it lists every path copy mode writes in `.claude/` and `.cursor/`
+for every plugin the base **or any profile** pins, read from the committed locks, for every
+host that is not `off`: like `node_modules`, they come back with `deck install`, so the
+repository holds only the intent (`ai-plugin.json`, locks, profiles). The block does not
+depend on the active profile or on which CLIs a machine has: `deck profile use` never
+changes `.gitignore`, and adding to or removing from a profile that is not active updates it. `deck init --commit-copies` sets
 `"gitignoreCopies": false` in `ai-plugin.json`: the copies stay out of the block and get
 committed, so a fresh clone works in Cursor before `deck install`. Shared files deck edits
 (`.mcp.json`, `.cursor/mcp.json`, `AGENTS.md`, `CLAUDE.md`) are never ignored.

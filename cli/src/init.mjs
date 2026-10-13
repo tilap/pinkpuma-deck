@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
-import { writeGitignoreBlock } from "./gitignore.mjs";
+import { copiesToIgnore, writeGitignoreBlock } from "./gitignore.mjs";
+import { hostModes } from "./install.mjs";
 import { PLUGINS_FILE } from "./paths.mjs";
 import { emptyPlugins, readPlugins, writePlugins } from "./plugins.mjs";
 import { readState } from "./state.mjs";
@@ -37,8 +38,7 @@ export function initProject(projectRoot, options = {}) {
   if (done.length > 0) writePlugins(projectRoot, doc);
 
   const state = readState(projectRoot);
-  const copies =
-    doc.gitignoreCopies === false ? [] : Object.values(state.plugins).flatMap((entry) => entry.paths ?? []);
+  const copies = copiesToIgnore(projectRoot, state, doc, hostModes(doc));
   const ignore = writeGitignoreBlock(projectRoot, { copies, create: true });
   if (ignore.created) done.push("created .gitignore with deck's block");
   else if (ignore.wrote) done.push("wrote deck's block in .gitignore");

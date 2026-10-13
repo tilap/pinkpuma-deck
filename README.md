@@ -1,60 +1,78 @@
 # pinkpuma-deck
 
-Tooling for Claude Code / Cursor **plugin marketplaces**: release skills and a sync CLI.
-Install these tools when you need to version, changelog, tag, or sync marketplace
-plugins — in this repo or in any other marketplace that uses the same layout.
+CLI to install and sync Claude Code / Cursor plugins and skills into a project.
+[`@pinkpuma/deck`](cli/README.md) resolves what you ask for into a lockfile, the same way
+npm does with `package.json` and `package-lock.json`.
 
-Every plugin ships as a single source shared by both tools — see [HOWTO.md](HOWTO.md).
+Commit `ai-plugin.json` and `ai-plugin.lock.json`. `.ai/installed/` stays on the machine
+and comes back with `deck install`.
 
-## Plugins
+## Simple project
 
-| Plugin                                                     | Purpose                                                      |
-| ---------------------------------------------------------- | ------------------------------------------------------------ |
-| [plugins-pack-maintainer](plugins/plugins-pack-maintainer) | Version, changelog, and tag releases for marketplace plugins |
-
-## CLI
-
-Consumer-side install — npm package [`@pinkpuma/deck`](cli/README.md): any plugin or skill
-(GitHub marketplace, any git host, npm, archive, or a repository of skills) for Claude Code
-and Cursor. `ai-plugin.json` is what you ask for, `ai-plugin.lock.json` is what it resolved
-to — commit both, like `package.json` and `package-lock.json`.
+One shared set of plugins for the whole repository.
 
 ```bash
-npx @pinkpuma/deck init                # .gitignore, AGENTS.md, CLAUDE.md
-npx @pinkpuma/deck add owner/marketplace-repo@plugin-name --ref v0.1.0
-npx @pinkpuma/deck add anthropics/skills --skill pdf
-npx @pinkpuma/deck install --frozen   # on another machine, in CI
-npx @pinkpuma/deck profile use builder # switch agent profile (see cli/README.md#profiles)
-
-# install a plugin you are editing, without changing ai-plugin.json
-npx @pinkpuma/deck link /path/to/marketplace@plugin-name
+deck init
+deck add owner/marketplace-repo@plugin-name --ref v0.1.0
+deck add anthropics/skills --skill pdf
 ```
 
-## Install (agent plugins)
+`init` wires `.gitignore`, `AGENTS.md`, and `CLAUDE.md`. `add` writes the request to
+`ai-plugin.json`, pins it in `ai-plugin.lock.json`, and installs it for Claude Code and
+Cursor.
 
-### Claude Code
+On another machine, or in CI:
 
 ```bash
-claude plugin marketplace add tilap/pinkpuma-deck
-claude plugin install plugins-pack-maintainer@pinkpuma-deck
+deck install --frozen
 ```
 
-While authoring this repo, register the local clone instead:
+While editing a plugin in a local checkout, install that working tree and leave the
+committed request as it is:
 
 ```bash
-cd /path/to/this-repo
-claude plugin marketplace add ./
-claude plugin install plugins-pack-maintainer@pinkpuma-deck
+deck link /path/to/marketplace@plugin-name
 ```
 
-Use `--scope project` and commit `.claude/settings.json` when a project should pin the
-tooling for every collaborator.
+## Project with profiles
 
-### Cursor
+The base from the simple project stays. Each profile is an agent role — builder, tester,
+reviewer — with its own prompt and its own plugins, installed on top of that base.
 
-Add the plugin from Cursor’s plugin manager by pointing it at
-`plugins/plugins-pack-maintainer/` (or link under `~/.cursor/plugins/local/`).
+```bash
+deck profile new builder
+deck add anthropics/skills --skill pdf --profile builder
+deck profile use builder
+```
 
-## Repository layout and contributing
+`profile use` installs the base plus that profile, points Claude at the profile prompt,
+and writes the Cursor rule from the same file. Open a new Claude session, or reload
+Cursor, to pick it up.
 
-See [HOWTO.md](HOWTO.md) and [AGENTS.md](AGENTS.md).
+```bash
+deck profile use tester   # tester's plugins replace builder's; the base stays
+deck profile off          # base only
+deck profile list         # * marks the active profile
+```
+
+`add --profile tester` on a profile that is not active still resolves and locks the
+plugin under `.ai/profiles/tester/`. It is installed when that profile is used. Each
+plugin id lives in the base or in one profile.
+
+Commit each profile folder:
+
+```
+.ai/profiles/builder/prompt.md
+.ai/profiles/builder/ai-plugin.json
+.ai/profiles/builder/ai-plugin.lock.json
+```
+
+`.ai/current` (which profile is active on this machine) stays local.
+
+## Reference
+
+Commands, sources, hosts, and the lock format: [cli/README.md](cli/README.md).
+
+Working on this repo: [AGENTS.md](AGENTS.md). Unit tests are `cd cli && npm test`. The
+toolbelt scenario is [cli/integration/README.md](cli/integration/README.md). Releasing
+the package is [cli/README.md](cli/README.md#release).

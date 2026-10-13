@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import fs from "node:fs";
 import path from "node:path";
-import { installAll, installOne, lockOnly, materializeTo, pinFor, uninstallOne } from "./install.mjs";
+import { installAll, installOne, lockOnly, materializeTo, pinFor, refreshGitignore, uninstallOne } from "./install.mjs";
 import { readLockfile, removeLockEntry, upsertLockEntry, writeLockfile } from "./lockfile.mjs";
 import { isOutdated, outdated } from "./outdated.mjs";
 import { LOCAL_PLUGINS_FILE, LOCK_FILE, PLUGINS_FILE } from "./paths.mjs";
@@ -194,6 +194,7 @@ async function lockProfile(root, profile, requests, { update = false } = {}) {
     console.log(`  ${describe(entry)}  (locked; profile ${profile} is not active)`);
   }
   writeLockfile(dir, lock);
+  refreshGitignore(root);
 }
 
 async function cmdAdd(root, args, rest) {
@@ -254,6 +255,7 @@ async function cmdRemove(root, args, rest) {
     writePlugins(dir, next);
     const lock = readLockfile(dir);
     if (lock) writeLockfile(dir, removeLockEntry(lock, id));
+    refreshGitignore(root);
     console.log(`Removed ${id} from profile ${profile}`);
     return;
   }

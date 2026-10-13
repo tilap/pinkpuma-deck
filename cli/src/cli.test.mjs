@@ -101,6 +101,33 @@ function snapshot(root) {
   return files.sort().join("\n");
 }
 
+test("switching profiles leaves deck's .gitignore block as it was", () => {
+  const repo = market();
+  const root = tmp("deck-cli-");
+  const src = (name) => `git+${repo.url}@${name}`;
+  assert.equal(deck(root, "init").code, 0);
+  deck(root, "add", src("base-kit"));
+  deck(root, "profile", "new", "builder");
+  deck(root, "profile", "new", "tester");
+  deck(root, "add", src("build-kit"), "--profile", "builder");
+  deck(root, "add", src("test-kit"), "--profile", "tester");
+  const read = () => fs.readFileSync(path.join(root, ".gitignore"), "utf8");
+
+  const before = read();
+  for (const rel of ["/.cursor/skills/commit", "/.cursor/skills/pdf", "/.cursor/skills/e2e"]) {
+    assert.ok(before.split("\n").includes(rel), `${rel} is ignored before any profile is active`);
+  }
+  assert.equal(deck(root, "profile", "use", "builder").code, 0);
+  assert.equal(read(), before);
+  assert.equal(deck(root, "profile", "use", "tester").code, 0);
+  assert.equal(read(), before);
+  assert.equal(deck(root, "profile", "off").code, 0);
+  assert.equal(read(), before);
+
+  deck(root, "remove", "test-kit", "--profile", "tester");
+  assert.ok(!read().split("\n").includes("/.cursor/skills/e2e"), "a plugin no profile pins any more leaves the block");
+});
+
 test("materialize builds the base and one profile into a folder, and nothing else", () => {
   const repo = market();
   const root = writeTree(tmp("deck-cli-"), { ".gitignore": "node_modules\n" });
