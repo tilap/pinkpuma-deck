@@ -52,6 +52,7 @@ Options for every command:
   -C, --project <dir>   project root (default: current directory)
   --force               replace files that deck did not write
   -h, --help
+  -v, --version         print the deck version (alone, without a command)
 
 Advanced options:
   add       --id <id>  --path <dir in source>  --sha256 <hex>  --no-install
@@ -425,8 +426,19 @@ async function cmdMaterialize(root, args) {
   if (result.prompt) console.log(`Prompt: ${result.prompt}`);
 }
 
+/** The version of this CLI, read from its own package.json. */
+function cliVersion() {
+  const pkgPath = new URL("../package.json", import.meta.url);
+  return JSON.parse(fs.readFileSync(pkgPath, "utf8")).version;
+}
+
 async function main() {
-  const args = parseArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.length === 1 && (argv[0] === "-v" || argv[0] === "--version")) {
+    console.log(cliVersion());
+    return;
+  }
+  const args = parseArgs(argv);
   const [cmd, ...rest] = args._;
   if (!cmd || args.flags.has("help")) {
     console.log(USAGE);
