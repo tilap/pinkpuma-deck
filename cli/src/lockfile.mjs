@@ -44,6 +44,11 @@ function normalizeResolved(resolved, where) {
     case "local":
       if (!resolved.sha) throw new Error(`${where}.resolved needs a commit sha`);
       break;
+    case "path":
+      if (!resolved.path || resolved.path.startsWith("/") || resolved.path.split("/").includes("..")) {
+        throw new Error(`${where}.resolved.path must stay inside the project`);
+      }
+      break;
     case "npm":
       if (!resolved.package || !resolved.version) throw new Error(`${where}.resolved needs package and version`);
       break;

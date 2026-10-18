@@ -3,14 +3,14 @@
 Install AI plugins and skills into a project, for Claude Code and Cursor, and reinstall
 exactly the same thing later — on another machine, in CI, or for an agent runner.
 
-| npm                 | deck                                                               | Commit |
-| ------------------- | ------------------------------------------------------------------ | ------ |
-| `package.json`      | `ai-plugin.json` — what you ask for                                | yes    |
-| `package-lock.json` | `ai-plugin.lock.json` — commits, versions, digests, contents       | yes    |
-| `node_modules/`     | `.ai/installed/plugins/<id>/` — each plugin, normalized            | no     |
-| —                   | `.ai/installed/state.json` — what deck wrote on this machine       | no     |
+| npm                 | deck                                                                | Commit |
+| ------------------- | ------------------------------------------------------------------- | ------ |
+| `package.json`      | `ai-plugin.json` — what you ask for                                 | yes    |
+| `package-lock.json` | `ai-plugin.lock.json` — commits, versions, digests, contents        | yes    |
+| `node_modules/`     | `.ai/installed/plugins/<id>/` — each plugin, normalized             | no     |
+| —                   | `.ai/installed/state.json` — what deck wrote on this machine        | no     |
 | —                   | `.ai/profiles/<name>/` — agent profiles (see [Profiles](#profiles)) | yes    |
-| —                   | `ai-plugin.local.json` — links to working trees                    | no     |
+| —                   | `ai-plugin.local.json` — links to working trees                     | no     |
 
 ```bash
 npm i -g @pinkpuma/deck
@@ -34,19 +34,19 @@ deck profile new|use|off|list [<name>]
 deck materialize --out <dir> [--profile <name>] [--json]
 ```
 
-| Command      | Effect                                                                                                    |
-| ------------ | --------------------------------------------------------------------------------------------------------- |
-| `init`       | Wire deck into the project: see [Set up a project](#set-up-a-project)                                     |
-| `add`        | Resolve, install, and lock. The request is written only if that succeeds. Creates `ai-plugin.json` if needed |
-| `remove`     | Drop the request, its normalized tree, its installed files, and its lock entry                            |
-| `install`    | Make the project match the base and the active profile, pinned by the locks. `--frozen` for CI            |
-| `update`     | Resolve refs again (all, or the ids given) and rewrite the lock                                           |
-| `status`     | Active profile, every request (`[base]`, `[profile x]`, `[link]`) and its lock pin, and every mismatch between request, lock, `.ai/installed/`, hosts, and `.gitignore`. Never touches the network. Exit 1 on errors |
-| `outdated`   | Lock pins vs what each ref or range points to now, and newer release tags. Exit 1 when behind             |
-| `link`       | Install a local folder (a git checkout, uncommitted files included, or any folder of skills). Not locked  |
-| `unlink`     | Drop the link; reinstall the committed request if there is one                                            |
-| `profile`    | Agent profiles: see [Profiles](#profiles)                                                                 |
-| `materialize`| Build the base and one profile into a folder, for a tool that launches agents: see [Materialize](#materialize) |
+| Command       | Effect                                                                                                                                                                                                               |
+| ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `init`        | Wire deck into the project: see [Set up a project](#set-up-a-project)                                                                                                                                                |
+| `add`         | Resolve, install, and lock. The request is written only if that succeeds. Creates `ai-plugin.json` if needed                                                                                                         |
+| `remove`      | Drop the request, its normalized tree, its installed files, and its lock entry                                                                                                                                       |
+| `install`     | Make the project match the base and the active profile, pinned by the locks. `--frozen` for CI                                                                                                                       |
+| `update`      | Resolve refs again (all, or the ids given) and rewrite the lock                                                                                                                                                      |
+| `status`      | Active profile, every request (`[base]`, `[profile x]`, `[link]`) and its lock pin, and every mismatch between request, lock, `.ai/installed/`, hosts, and `.gitignore`. Never touches the network. Exit 1 on errors |
+| `outdated`    | Lock pins vs what each ref or range points to now, and newer release tags. Exit 1 when behind                                                                                                                        |
+| `link`        | Install a local folder (a git checkout, uncommitted files included, or any folder of skills). Not locked                                                                                                             |
+| `unlink`      | Drop the link; reinstall the committed request if there is one                                                                                                                                                       |
+| `profile`     | Agent profiles: see [Profiles](#profiles)                                                                                                                                                                            |
+| `materialize` | Build the base and one profile into a folder, for a tool that launches agents: see [Materialize](#materialize)                                                                                                       |
 
 Every command takes `-C <dir>` (`--project`), `--force` (let copy mode replace a file deck
 did not write), and `--help`. An option a command does not take is refused.
@@ -61,12 +61,12 @@ deck init                  # once per project; safe to run again
 deck init --commit-copies  # same, but commit the copies in .claude/ and .cursor/
 ```
 
-| File             | `deck init`                                                                 | Afterwards                                     |
-| ---------------- | --------------------------------------------------------------------------- | ---------------------------------------------- |
-| `ai-plugin.json` | Created when missing                                                        | `deck add` / `remove`                          |
-| `.gitignore`     | Created when missing; deck's managed block written                          | `deck install` rewrites the block              |
-| `AGENTS.md`      | Created when missing                                                        | `deck install` rewrites its `## Skills` block  |
-| `CLAUDE.md`      | Created when missing, or given an `@AGENTS.md` line                         | `deck profile use` / `off` add or drop `@.ai/current/prompt.md` |
+| File             | `deck init`                                         | Afterwards                                                      |
+| ---------------- | --------------------------------------------------- | --------------------------------------------------------------- |
+| `ai-plugin.json` | Created when missing                                | `deck add` / `remove`                                           |
+| `.gitignore`     | Created when missing; deck's managed block written  | `deck install` rewrites the block                               |
+| `AGENTS.md`      | Created when missing                                | `deck install` rewrites its `## Skills` block                   |
+| `CLAUDE.md`      | Created when missing, or given an `@AGENTS.md` line | `deck profile use` / `off` add or drop `@.ai/current/prompt.md` |
 
 `CLAUDE.md` imports `AGENTS.md`, so Claude Code reads what Cursor reads: write project
 instructions once, in `AGENTS.md`.
@@ -162,19 +162,26 @@ agent's instructions.
 
 ## Sources
 
-| You type                          | Request                                                 |
-| --------------------------------- | ------------------------------------------------------- |
-| `owner/repo@plugin`               | `{ "source": "github:owner/repo", "plugin": "plugin" }` |
-| `owner/repo`                      | a single-plugin repository, or a repository of skills   |
-| `owner/repo --skill a --skill b`  | only those skills                                       |
-| `https://github.com/owner/repo`   | same as `owner/repo`                                    |
+| You type                            | Request                                                       |
+| ----------------------------------- | ------------------------------------------------------------- |
+| `owner/repo@plugin`                 | `{ "source": "github:owner/repo", "plugin": "plugin" }`       |
+| `owner/repo`                        | a single-plugin repository, or a repository of skills         |
+| `owner/repo --skill a --skill b`    | only those skills                                             |
+| `https://github.com/owner/repo`     | same as `owner/repo`                                          |
 | `git+https://gitlab.com/t/r.git#v1` | `{ "source": "git:https://gitlab.com/t/r.git", "ref": "v1" }` |
-| `git@host:team/repo.git`          | any git host over SSH                                   |
-| `npm:@scope/pkg@^2`               | `{ "source": "npm:@scope/pkg", "version": "^2" }`       |
-| `https://…/kit.zip` (or `.tar.gz`) | `{ "source": "archive:https://…/kit.zip" }`             |
+| `git@host:team/repo.git`            | any git host over SSH                                         |
+| `npm:@scope/pkg@^2`                 | `{ "source": "npm:@scope/pkg", "version": "^2" }`             |
+| `https://…/kit.zip` (or `.tar.gz`)  | `{ "source": "archive:https://…/kit.zip" }`                   |
+| `./plugins/name`                    | `{ "source": "path:plugins/name" }`                           |
+| `./plugins@name`                    | `{ "source": "path:plugins", "plugin": "name" }`              |
 
 The id defaults to the plugin name (or the repository name); `--id` overrides it.
 Without `--ref`, deck takes the default branch and locks the commit it found.
+
+`./path` is a directory inside the project. The request stores `path:<relative>` (no leading
+`./`) and the lock stores that path plus the integrity of the normalized tree. `deck install`
+re-reads the directory; `--frozen` refuses when the files no longer match the lock. A path
+without `./` is a GitHub `owner/repo`. A folder outside the project is `deck link`.
 
 Inside a fetched source, deck finds the plugin the way Claude Code and Cursor do:
 
@@ -205,11 +212,11 @@ Then each host is activated. `ai-plugin.json` can set a mode per host:
 { "plugins": [], "hosts": { "claude": "native", "cursor": "copy" } }
 ```
 
-| Mode     | Claude Code                                                                 | Cursor                                   |
-| -------- | --------------------------------------------------------------------------- | ---------------------------------------- |
-| `native` | default — `.ai/installed/` is a local marketplace; each plugin is installed from it | not supported, falls back to `copy`      |
-| `copy`   | vendor components into `.claude/`, `.mcp.json`                              | default — vendor into `.cursor/`         |
-| `off`    | nothing for that host                                                       | nothing for that host                    |
+| Mode     | Claude Code                                                                         | Cursor                              |
+| -------- | ----------------------------------------------------------------------------------- | ----------------------------------- |
+| `native` | default — `.ai/installed/` is a local marketplace; each plugin is installed from it | not supported, falls back to `copy` |
+| `copy`   | vendor components into `.claude/`, `.mcp.json`                                      | default — vendor into `.cursor/`    |
+| `off`    | nothing for that host                                                               | nothing for that host               |
 
 **Native (Claude Code).** deck runs `claude plugin marketplace add <project>/.ai/installed --scope
 local`, then `claude plugin install <id>@deck --scope local` for each plugin (and
@@ -228,14 +235,14 @@ with cursor-agent 2026.10.01), so Cursor uses copy mode. Agent runners can still
 
 Copy mode writes:
 
-| Component                      | Claude Code                        | Cursor                             |
-| ------------------------------ | ---------------------------------- | ---------------------------------- |
-| Skills                         | `.claude/skills/<name>/`           | `.cursor/skills/<name>/`           |
-| Agents (nested folders kept)   | `.claude/agents/`                  | `.cursor/agents/`                  |
-| Commands                       | `.claude/commands/<id>/`           | `.cursor/commands/<id>/`           |
-| Rules                          | —                                  | `.cursor/rules/<id>/`              |
-| Support files                  | `.claude/plugins/<id>/`            | `.cursor/plugins/<id>/`            |
-| MCP (keys `deck__<id>__<server>`) | `.mcp.json`                     | `.cursor/mcp.json`                 |
+| Component                         | Claude Code              | Cursor                   |
+| --------------------------------- | ------------------------ | ------------------------ |
+| Skills                            | `.claude/skills/<name>/` | `.cursor/skills/<name>/` |
+| Agents (nested folders kept)      | `.claude/agents/`        | `.cursor/agents/`        |
+| Commands                          | `.claude/commands/<id>/` | `.cursor/commands/<id>/` |
+| Rules                             | —                        | `.cursor/rules/<id>/`    |
+| Support files                     | `.claude/plugins/<id>/`  | `.cursor/plugins/<id>/`  |
+| MCP (keys `deck__<id>__<server>`) | `.mcp.json`              | `.cursor/mcp.json`       |
 
 Relative links from a skill to a support file are rewritten to the per-plugin directory.
 `${CLAUDE_PLUGIN_ROOT}`, `${CURSOR_PLUGIN_ROOT}`, and `${PLUGIN_ROOT}` are replaced with

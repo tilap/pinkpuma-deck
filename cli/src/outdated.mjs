@@ -18,6 +18,9 @@ export function outdated(projectRoot) {
     try {
       if (resolved.type === "git") return gitRow(entry, descriptorFor(request));
       if (resolved.type === "npm") return npmRow(entry, descriptorFor(request));
+      if (resolved.type === "path") {
+        return { id: entry.id, type: "path", current: resolved.path, wanted: null, latest: null, note: "content is in the repo" };
+      }
       return { id: entry.id, type: resolved.type, current: short(resolved.sha256 ?? resolved.sha), wanted: null, latest: null, note: "pinned by digest" };
     } catch (err) {
       return { id: entry.id, type: resolved.type, current: "?", wanted: null, latest: null, note: err.message.split("\n")[0] };

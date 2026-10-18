@@ -52,7 +52,10 @@ function pinFor(lock, request, update) {
 export async function resolveRequest(projectRoot, request, options = {}) {
   const fetch = options.fetch ?? fetchSource;
   const pin = options.pin ?? null;
-  const descriptor = pin ? pinDescriptor(descriptorFor(request), pin.resolved) : descriptorFor(request);
+  let descriptor = descriptorFor(request);
+  // `path:` is read from the real project. lockOnly and materialize build into a scratch dir.
+  if (descriptor.type === "path") descriptor = { ...descriptor, base: options.base ?? projectRoot };
+  if (pin) descriptor = pinDescriptor(descriptor, pin.resolved);
   const fetched = await fetch(descriptor);
   const located = await locatePlugin(fetched.root, request, { nested: pin?.nested ?? null, fetch });
   const built = materialize(projectRoot, request.id, located, {
@@ -286,7 +289,9 @@ export async function installAll(projectRoot, doc, lock, options = {}) {
   const linkedEntries = [];
   for (const request of doc.plugins) {
     const pin = pinFor(current, request, isUpdate(request.id));
-    if (upToDate(projectRoot, request, pin, state, hostModes(doc))) {
+    const isPath = descriptorFor(request).type === "path";
+    // A directory in the project is re-read every install. Git pins can skip the fetch.
+    if (!isPath && upToDate(projectRoot, request, pin, state, hostModes(doc))) {
       results.push({ entry: pin, warnings: [], pinned: true, linked: false, skipped: true });
       continue;
     }
@@ -295,6 +300,10 @@ export async function installAll(projectRoot, doc, lock, options = {}) {
       frozen: options.frozen,
       fetch: options.fetch,
     });
+    if (isPath && pin?.integrity === built.integrity && upToDate(projectRoot, request, pin, state, hostModes(doc))) {
+      results.push({ entry: pin, warnings: [], pinned: true, linked: false, skipped: true });
+      continue;
+    }
     const warnings = activate(projectRoot, request.id, built.dir, hostModes(doc), state, options.force, built.integrity);
     if (request.linked) linkedEntries.push(entry);
     else current = upsertLockEntry(current, entry);
@@ -314,7 +323,7 @@ export async function installAll(projectRoot, doc, lock, options = {}) {
 export async function lockOnly(request, pin, options = {}) {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "deck-lock-"));
   try {
-    const { entry } = await resolveRequest(scratch, request, { pin, fetch: options.fetch });
+    const { entry } = await resolveRequest(scratch, request, { pin, fetch: options.fetch, base: options.base });
     return entry;
   } finally {
     fs.rmSync(scratch, { recursive: true, force: true });
@@ -362,7 +371,12 @@ export async function materializeTo(projectRoot, options) {
       if (fs.existsSync(dest) && treeIntegrity(dest) === pin.integrity) {
         skipped = true;
       } else {
-        const { built } = await resolveRequest(scratch, request, { pin, frozen: true, fetch: options.fetch });
+        const { built } = await resolveRequest(scratch, request, {
+          pin,
+          frozen: true,
+          fetch: options.fetch,
+          base: projectRoot,
+        });
         fs.rmSync(dest, { recursive: true, force: true });
         fs.cpSync(built.dir, dest, { recursive: true });
       }

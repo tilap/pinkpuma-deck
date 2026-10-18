@@ -46,6 +46,7 @@ Sources (add):
   git+<url>[#ref]@plugin     any git host (also git@host:owner/repo.git)
   npm:<package>[@version]    an npm package
   https://….zip | .tar.gz    an archive
+  ./<path>[@plugin]          a directory inside the project (committed)
 
 Options for every command:
   -C, --project <dir>   project root (default: current directory)
@@ -140,7 +141,9 @@ function describe(entry) {
       ? String(r.sha).slice(0, 12)
       : r.type === "npm"
         ? `${r.package}@${r.version}`
-        : String(r.sha256).slice(0, 12);
+        : r.type === "path"
+          ? r.path
+          : String(r.sha256).slice(0, 12);
   const c = entry.components;
   const parts = [
     `skills=${c.skills.length}`,
@@ -189,7 +192,7 @@ async function lockProfile(root, profile, requests, { update = false } = {}) {
   const dir = profileDir(root, profile);
   let lock = readLockfile(dir) ?? { lockfileVersion: 3, writeAgentsMd: true, plugins: [] };
   for (const request of requests) {
-    const entry = await lockOnly(request, pinFor(lock, request, update));
+    const entry = await lockOnly(request, pinFor(lock, request, update), { base: root });
     lock = upsertLockEntry(lock, entry);
     console.log(`  ${describe(entry)}  (locked; profile ${profile} is not active)`);
   }

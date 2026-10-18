@@ -12,6 +12,7 @@ import { safeSegment } from "../paths.mjs";
  * @typedef {{ type: "git", url: string, sha: string }
  *   | { type: "npm", package: string, version: string, integrity?: string }
  *   | { type: "archive", url: string, sha256: string }
+ *   | { type: "path", path: string }
  *   | { type: "local", path: string, sha: string }} Resolved
  * @returns {Promise<{ root: string, resolved: Resolved }>}
  */
@@ -23,6 +24,11 @@ export async function fetchSource(descriptor) {
       return fetchNpm(descriptor);
     case "archive":
       return fetchArchive(descriptor);
+    case "path": {
+      const abs = resolveProjectPath(descriptor.base, descriptor.path);
+      const { root } = copyWorkingTree(abs);
+      return { root, resolved: { type: "path", path: descriptor.path } };
+    }
     case "local": {
       const { root, resolved } = copyWorkingTree(descriptor.path);
       return { root, resolved: { type: "local", path: path.resolve(descriptor.path), sha: resolved } };
@@ -197,6 +203,27 @@ async function fetchArchive(descriptor) {
 }
 
 /** The plugin may sit at the top of the archive or one directory down. */
+/** Absolute directory for a `path:` source. A symlink that leaves the project is refused. */
+function resolveProjectPath(base, relative) {
+  if (!base) throw new Error(`path:${relative} needs the project root`);
+  let root;
+  try {
+    root = fs.realpathSync(base);
+  } catch {
+    throw new Error(`path:${relative} needs the project root`);
+  }
+  const abs = path.resolve(root, relative);
+  if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) {
+    throw new Error(`path:${relative} is not a directory in the project`);
+  }
+  const real = fs.realpathSync(abs);
+  const rel = path.relative(root, real);
+  if (rel.startsWith("..") || path.isAbsolute(rel)) {
+    throw new Error(`path:${relative} points outside the project`);
+  }
+  return real;
+}
+
 function archiveRoot(dir) {
   const entries = fs.readdirSync(dir).filter((name) => name !== "__MACOSX" && !name.startsWith("."));
   if (entries.length === 1 && fs.statSync(path.join(dir, entries[0])).isDirectory()) {
@@ -215,6 +242,8 @@ export function pinDescriptor(descriptor, resolved) {
       return { ...descriptor, package: resolved.package, version: resolved.version };
     case "archive":
       return { ...descriptor, sha256: resolved.sha256 };
+    case "path":
+      return { ...descriptor, path: resolved.path || descriptor.path };
     default:
       return descriptor;
   }

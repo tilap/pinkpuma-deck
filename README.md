@@ -15,11 +15,16 @@ One shared set of plugins for the whole repository.
 deck init
 deck add owner/marketplace-repo@plugin-name --ref v0.1.0
 deck add anthropics/skills --skill pdf
+deck add ./plugins/mon-plugin
 ```
 
 `init` wires `.gitignore`, `AGENTS.md`, and `CLAUDE.md`. `add` writes the request to
 `ai-plugin.json`, pins it in `ai-plugin.lock.json`, and installs it for Claude Code and
 Cursor.
+
+`./plugins/mon-plugin` is a plugin that lives in this repository. The path is committed
+with the lock. `deck install` re-reads it; `--frozen` refuses if the files drifted.
+Write `./` so deck does not read the path as a GitHub repository.
 
 On another machine, or in CI:
 

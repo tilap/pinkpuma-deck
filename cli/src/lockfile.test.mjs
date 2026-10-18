@@ -41,6 +41,8 @@ test("npm and archive resolutions are validated", () => {
   const ok = (resolved) => normalizeLockfile({ lockfileVersion: 3, plugins: [entry("x", { resolved })] });
   ok({ type: "npm", package: "@a/b", version: "1.0.0", integrity: "sha512-x" });
   ok({ type: "archive", url: "https://x/a.zip", sha256: "f".repeat(64) });
+  ok({ type: "path", path: "plugins/demo" });
+  assert.throws(() => ok({ type: "path", path: "/tmp/demo" }), /inside the project/);
   assert.throws(() => ok({ type: "npm", package: "@a/b" }), /package and version/);
   assert.throws(() => ok({ type: "git", url: "u" }), /commit sha/);
   assert.throws(() => ok({ type: "svn" }), /unknown type/);

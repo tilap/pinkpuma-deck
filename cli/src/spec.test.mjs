@@ -54,6 +54,28 @@ test("parseAddSpec reads npm and archive sources", () => {
   });
 });
 
+test("parseAddSpec reads a directory inside the project", () => {
+  assert.deepEqual(parseAddSpec("./plugins/mon-plugin/"), {
+    id: "mon-plugin",
+    source: "path:plugins/mon-plugin",
+  });
+  assert.deepEqual(parseAddSpec("./plugins@demo"), {
+    id: "demo",
+    source: "path:plugins",
+    plugin: "demo",
+  });
+  assert.deepEqual(normalizeRequest({ id: "x", source: "path:./plugins/foo/" }), {
+    id: "x",
+    source: "path:plugins/foo",
+  });
+  assert.throws(() => parseAddSpec("../kit"), /outside the project/);
+  assert.throws(() => parseAddSpec("./../outside"), /inside the project/);
+  assert.deepEqual(parseAddSpec("plugins/mon-plugin"), {
+    id: "mon-plugin",
+    source: "github:plugins/mon-plugin",
+  });
+});
+
 test("parseAddSpec applies flags over the spec", () => {
   assert.deepEqual(parseAddSpec("anthropics/skills", { skills: ["pdf", "docx", "pdf"], id: "docs", ref: "main" }), {
     id: "docs",
@@ -92,6 +114,8 @@ test("descriptorFor maps each source kind", () => {
     version: "1.0.0",
   });
   assert.throws(() => descriptorFor({ source: "archive:http://x/a.zip" }), /https/);
+  assert.deepEqual(descriptorFor({ source: "path:plugins/demo" }), { type: "path", path: "plugins/demo" });
+  assert.throws(() => descriptorFor({ source: "path:/abs/demo" }), /inside the project/);
 });
 
 test("helpers: defaultId, githubFromUrl, sameRequest", () => {

@@ -9,12 +9,14 @@
  *   git:<url>             any git repository (https, ssh, file)
  *   npm:<package>         an npm package (`version` picks the version or range)
  *   archive:<https url>   a .zip or .tar.gz download (`sha256` pins the bytes)
+ *   path:<relative>       a directory inside the project (deck add ./path)
  *   local:<abs path>      a working tree on this machine (deck link only)
  *
  * @typedef {{ id: string, source: string, plugin?: string, skills?: string[], path?: string, ref?: string, version?: string, sha256?: string, from?: string }} Request
  * @typedef {{ type: "git", url: string, ref?: string, sha?: string, repo?: string }
  *   | { type: "npm", package: string, version?: string, registry?: string }
  *   | { type: "archive", url: string, sha256?: string }
+ *   | { type: "path", path: string }
  *   | { type: "local", path: string }} Descriptor
  */
 
@@ -37,8 +39,9 @@ export function normalizeRequest(raw, where = "request") {
   if (typeof raw.source !== "string" || !raw.source.includes(":")) {
     throw new Error(`${where} (${raw.id}) needs a source such as github:owner/repo`);
   }
-  descriptorFor({ source: raw.source }, where);
-  const out = { id: raw.id, source: raw.source };
+  const descriptor = descriptorFor({ source: raw.source }, where);
+  const source = descriptor.type === "path" ? `path:${descriptor.path}` : raw.source;
+  const out = { id: raw.id, source };
   for (const key of OPTIONAL_KEYS) {
     if (raw[key] == null || raw[key] === "") continue;
     if (typeof raw[key] !== "string") {
@@ -89,6 +92,8 @@ export function descriptorFor(request, where = "request") {
         throw new Error(`${where}: archive source must be an https URL`);
       }
       return { type: "archive", url: value, ...(request.sha256 ? { sha256: request.sha256 } : {}) };
+    case "path":
+      return { type: "path", path: projectRelative(value, where) };
     case "local":
       return { type: "local", path: value };
     default:
@@ -123,12 +128,13 @@ export function defaultId({ source, plugin, path }) {
  *   git@host:o/r.git[#ref]       ssh git URL
  *   npm:<package>[@version]      npm package
  *   https://….zip | .tar.gz      archive
+ *   ./<path>[@plugin]            a directory inside the project
  *
  * Flags: { ref, skills, path, id, sha256 } override what the spec says.
  * @returns {Request}
  */
 export function parseAddSpec(spec, flags = {}) {
-  if (!spec) throw new Error("add requires a source (owner/repo@plugin, git+URL, npm:pkg, https://….zip)");
+  if (!spec) throw new Error("add requires a source (owner/repo@plugin, ./path, git+URL, npm:pkg, https://….zip)");
   let request;
 
   if (spec.startsWith("npm:")) {
@@ -151,6 +157,13 @@ export function parseAddSpec(spec, flags = {}) {
       ...(hash === -1 ? {} : { ref: url.slice(hash + 1) }),
       ...(plugin ? { plugin } : {}),
     };
+  } else if (spec.startsWith("./") || spec.startsWith(".\\")) {
+    const { checkout, name } = splitPathPlugin(spec);
+    request = { source: `path:${checkout}`, ...(name ? { plugin: name } : {}) };
+  } else if (spec.startsWith("../") || spec.startsWith("..\\") || spec.startsWith("/")) {
+    throw new Error(
+      `"${spec}" is outside the project. deck add takes ./path inside the project; deck link takes any folder.`,
+    );
   } else if (spec.startsWith("https://") || spec.startsWith("http://")) {
     const { rest, plugin } = splitPlugin(spec);
     const [url, ref] = rest.split("#");
@@ -168,7 +181,7 @@ export function parseAddSpec(spec, flags = {}) {
       request = { source: `github:${spec}` };
     } else {
       throw new Error(
-        `Cannot read "${spec}". Use owner/repo@plugin, owner/repo, git+<url>, npm:<package>, or an https .zip URL`,
+        `Cannot read "${spec}". Use owner/repo@plugin, ./path, git+<url>, npm:<package>, or an https .zip URL`,
       );
     }
   }
@@ -179,6 +192,33 @@ export function parseAddSpec(spec, flags = {}) {
   if (flags.skills?.length) request.skills = flags.skills;
   request.id = flags.id || defaultId(request);
   return normalizeRequest(request, `"${spec}"`);
+}
+
+/**
+ * A directory inside the project, stored without a leading `./` and without `..`.
+ * @param {string} value path after `path:` or the `./…` the user typed
+ */
+function projectRelative(value, where = "request") {
+  let rel = value.replace(/\\/g, "/");
+  while (rel.startsWith("./")) rel = rel.slice(2);
+  rel = rel.replace(/\/+$/, "");
+  if (!rel || rel.startsWith("/") || rel.split("/").includes("..") || rel.split("/").includes("")) {
+    throw new Error(`${where}: path source must stay inside the project (got "${value}")`);
+  }
+  return rel;
+}
+
+/** `./plugins@name` — the `@` splits the plugin name, same rule as deck link. */
+function splitPathPlugin(spec) {
+  const normalized = spec.replace(/\\/g, "/");
+  const slash = normalized.lastIndexOf("/");
+  const at = normalized.lastIndexOf("@");
+  if (at > slash && at > 0) {
+    const name = normalized.slice(at + 1);
+    if (!name) throw new Error(`Invalid path "${spec}". Expected ./<path>[@<plugin-name>]`);
+    return { checkout: normalized.slice(0, at), name };
+  }
+  return { checkout: normalized, name: undefined };
 }
 
 /**

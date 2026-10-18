@@ -3,8 +3,9 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { installAll, installOne, uninstallOne } from "./install.mjs";
+import { installAll, installOne, lockOnly, uninstallOne } from "./install.mjs";
 import { readLockfile } from "./lockfile.mjs";
+import { isOutdated, outdated } from "./outdated.mjs";
 import { readState } from "./state.mjs";
 import { gitCommit, gitRepo, readJson, skill, tmp, writeTree } from "./testkit.mjs";
 
@@ -152,6 +153,33 @@ test("a linked working tree installs with uncommitted files and stays out of the
   await installAll(root, { plugins: [request] }, null);
   assert.ok(exists(root, ".claude/skills/draft/SKILL.md"));
   assert.deepEqual(readLockfile(root).plugins, []);
+});
+
+test("a directory inside the project is locked by its relative path and re-read", async () => {
+  const root = project({ "plugins/demo/skills/hello/SKILL.md": skill("hello") });
+  const doc = { plugins: [{ id: "demo", source: "path:plugins/demo" }] };
+  const { results } = await installAll(root, doc, null);
+
+  assert.deepEqual(results[0].entry.resolved, { type: "path", path: "plugins/demo" });
+  assert.match(results[0].entry.integrity, /^sha256-/);
+  assert.ok(exists(root, ".claude/skills/hello/SKILL.md"));
+  const [row] = outdated(root);
+  assert.equal(row.note, "content is in the repo");
+  assert.equal(isOutdated(row), false);
+
+  const again = await installAll(root, doc, readLockfile(root));
+  assert.equal(again.results[0].skipped, true);
+
+  const skillFile = path.join(root, "plugins/demo/skills/hello/SKILL.md");
+  fs.appendFileSync(skillFile, "\nchanged\n");
+  await assert.rejects(installAll(root, doc, readLockfile(root), { frozen: true }), /does not match the lock/);
+  const updated = await installAll(root, doc, readLockfile(root));
+  assert.notEqual(updated.results[0].entry.integrity, results[0].entry.integrity);
+  assert.match(fs.readFileSync(path.join(root, ".claude/skills/hello/SKILL.md"), "utf8"), /changed/);
+
+  const locked = await lockOnly({ id: "demo", source: "path:plugins/demo" }, null, { base: root });
+  assert.equal(locked.resolved.path, "plugins/demo");
+  assert.equal(locked.resolved.sha, undefined);
 });
 
 test("an npm package is packed without scripts and pinned by version", async (t) => {
