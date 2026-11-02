@@ -94,28 +94,62 @@ async function fetchGit(descriptor) {
   }
 
   const dest = path.join(cacheRoot(), "git", safeSegment(descriptor.url), safeSegment(want));
-  if (fs.existsSync(path.join(dest, ".git")) && SHA.test(want) && headCommit(dest) === want) {
+  if (SHA.test(want) && hasCommit(dest, want)) {
     return { root: dest, resolved: { type: "git", url: descriptor.url, sha: want } };
   }
 
-  fs.rmSync(dest, { recursive: true, force: true });
-  fs.mkdirSync(dest, { recursive: true });
-  const origin = local ?? descriptor.url;
-  run("git", ["-C", dest, "init", "-q"]);
-  run("git", ["-C", dest, "remote", "add", "origin", origin]);
-  const shallow = tryRun("git", ["-C", dest, "fetch", "-q", "--depth", "1", "origin", want]);
-  if (shallow) {
-    run("git", ["-C", dest, "checkout", "-q", "--force", "FETCH_HEAD"]);
-  } else {
-    // Servers that refuse a fetch by SHA, or a ref that is neither branch nor tag.
-    run("git", ["-C", dest, "fetch", "-q", "--tags", "origin"]);
-    run("git", ["-C", dest, "checkout", "-q", "--force", want]);
+  // Build beside the destination and rename into place: several processes may
+  // fetch the same commit at once (parallel agent workspaces), and none may
+  // ever see or disturb a half-built checkout.
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const stage = fs.mkdtempSync(`${dest}.tmp-`);
+  try {
+    const origin = local ?? descriptor.url;
+    run("git", ["-C", stage, "init", "-q"]);
+    run("git", ["-C", stage, "remote", "add", "origin", origin]);
+    const shallow = tryRun("git", ["-C", stage, "fetch", "-q", "--depth", "1", "origin", want]);
+    if (shallow) {
+      run("git", ["-C", stage, "checkout", "-q", "--force", "FETCH_HEAD"]);
+    } else {
+      // Servers that refuse a fetch by SHA, or a ref that is neither branch nor tag.
+      run("git", ["-C", stage, "fetch", "-q", "--tags", "origin"]);
+      run("git", ["-C", stage, "checkout", "-q", "--force", want]);
+    }
+    const sha = headCommit(stage);
+    if (descriptor.sha && sha !== descriptor.sha) {
+      throw new Error(`${descriptor.url}: expected commit ${descriptor.sha}, got ${sha}`);
+    }
+    publish(stage, dest, sha);
+    return { root: dest, resolved: { type: "git", url: descriptor.url, sha } };
+  } finally {
+    fs.rmSync(stage, { recursive: true, force: true });
   }
-  const sha = headCommit(dest);
-  if (descriptor.sha && sha !== descriptor.sha) {
-    throw new Error(`${descriptor.url}: expected commit ${descriptor.sha}, got ${sha}`);
+}
+
+function hasCommit(dir, sha) {
+  try {
+    return fs.existsSync(path.join(dir, ".git")) && headCommit(dir) === sha;
+  } catch {
+    return false;
   }
-  return { root: dest, resolved: { type: "git", url: descriptor.url, sha } };
+}
+
+/**
+ * Move a finished checkout to `dest`. If another process already published the
+ * same commit there, keep theirs; the caller removes `stage` either way.
+ */
+function publish(stage, dest, sha) {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    if (hasCommit(dest, sha)) return;
+    fs.rmSync(dest, { recursive: true, force: true });
+    try {
+      fs.renameSync(stage, dest);
+      return;
+    } catch (error) {
+      if (error.code !== "ENOTEMPTY" && error.code !== "EEXIST") throw error;
+    }
+  }
+  throw new Error(`Cannot publish ${sha} into the cache at ${dest}`);
 }
 
 const EXACT_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
