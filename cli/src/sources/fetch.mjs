@@ -98,22 +98,36 @@ async function fetchGit(descriptor) {
     return { root: dest, resolved: { type: "git", url: descriptor.url, sha: want } };
   }
 
-  fs.rmSync(dest, { recursive: true, force: true });
-  fs.mkdirSync(dest, { recursive: true });
+  // Build in a private directory, then rename into place: several processes may fetch the
+  // same commit at once (parallel tickets), and none may see or delete another's half-built clone.
+  fs.mkdirSync(path.dirname(dest), { recursive: true });
+  const work = fs.mkdtempSync(`${dest}.tmp-${process.pid}-`);
   const origin = local ?? descriptor.url;
-  run("git", ["-C", dest, "init", "-q"]);
-  run("git", ["-C", dest, "remote", "add", "origin", origin]);
-  const shallow = tryRun("git", ["-C", dest, "fetch", "-q", "--depth", "1", "origin", want]);
-  if (shallow) {
-    run("git", ["-C", dest, "checkout", "-q", "--force", "FETCH_HEAD"]);
-  } else {
-    // Servers that refuse a fetch by SHA, or a ref that is neither branch nor tag.
-    run("git", ["-C", dest, "fetch", "-q", "--tags", "origin"]);
-    run("git", ["-C", dest, "checkout", "-q", "--force", want]);
-  }
-  const sha = headCommit(dest);
-  if (descriptor.sha && sha !== descriptor.sha) {
-    throw new Error(`${descriptor.url}: expected commit ${descriptor.sha}, got ${sha}`);
+  let sha;
+  try {
+    run("git", ["-C", work, "init", "-q"]);
+    run("git", ["-C", work, "remote", "add", "origin", origin]);
+    const shallow = tryRun("git", ["-C", work, "fetch", "-q", "--depth", "1", "origin", want]);
+    if (shallow) {
+      run("git", ["-C", work, "checkout", "-q", "--force", "FETCH_HEAD"]);
+    } else {
+      // Servers that refuse a fetch by SHA, or a ref that is neither branch nor tag.
+      run("git", ["-C", work, "fetch", "-q", "--tags", "origin"]);
+      run("git", ["-C", work, "checkout", "-q", "--force", want]);
+    }
+    sha = headCommit(work);
+    if (descriptor.sha && sha !== descriptor.sha) {
+      throw new Error(`${descriptor.url}: expected commit ${descriptor.sha}, got ${sha}`);
+    }
+    try {
+      fs.rmSync(dest, { recursive: true, force: true });
+      fs.renameSync(work, dest);
+    } catch (error) {
+      // Another process installed the same destination first: its copy is as good as ours.
+      if (!(fs.existsSync(path.join(dest, ".git")) && headCommit(dest) === sha)) throw error;
+    }
+  } finally {
+    fs.rmSync(work, { recursive: true, force: true });
   }
   return { root: dest, resolved: { type: "git", url: descriptor.url, sha } };
 }
